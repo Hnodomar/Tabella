@@ -16,7 +16,8 @@ This project implements a to-do app that runs natively on Ubuntu Desktop.
 - All branches created must use the "codex/" prefix.
 - Always complete one coherent, working change and verify it before committing it with git according to Conventional Commit v1.0.0 guidelines https://www.conventionalcommits.org/en/v1.0.0/.
 - Always add a concise summary of what changed, why it changed and what the effect is (if there is any) to each secondary commit message via a second "-m" argument in "git commit".
-- After committing a verified change, push its `codex/` branch and open a pull request targeting `master` for review. Do not merge the pull request yourself. Include the change summary and verification results in the pull request description.
+- Before raising a pull request, run `gh auth status`. If GitHub CLI is not authenticated in this environment, ask the user to run `gh auth login --web --git-protocol ssh`; never request or record their token.
+- After committing a verified change, run `git push -u origin HEAD` from its worktree, then use `gh pr create --base master` to open a pull request. Provide a title and description summarizing the change, why it was made, its effect, and the verification commands and results. Do not merge the pull request yourself.
 - Once a change's pull request has been merged, remove its worktree with `git worktree remove`. Preserve and report any uncommitted changes that prevent removal.
 - Before every commit, run the relevant tests, linting and type checking.
 - Never include pre-existing user changes in commits.
