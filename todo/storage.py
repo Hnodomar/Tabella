@@ -137,6 +137,22 @@ class Store:
                 (str(percent),),
             )
 
+    def drag_handle_enabled(self):
+        row = self.db.execute(
+            "SELECT value FROM preferences WHERE key = 'drag_handle_enabled'"
+        ).fetchone()
+        return row is None or row["value"] == "1"
+
+    def set_drag_handle_enabled(self, enabled):
+        if type(enabled) is not bool:
+            raise ValueError("Drag handle setting must be a boolean.")
+        with self.db:
+            self.db.execute(
+                "INSERT INTO preferences (key, value) VALUES ('drag_handle_enabled', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                ("1" if enabled else "0",),
+            )
+
     def set_appearance(self, mode, use_ubuntu_theme):
         if mode not in ("light", "dark") or type(use_ubuntu_theme) is not bool:
             raise ValueError("Invalid appearance settings.")

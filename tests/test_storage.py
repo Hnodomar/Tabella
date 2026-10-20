@@ -169,6 +169,19 @@ class StorageTests(unittest.TestCase):
         self.store = Store(self.path)
         self.assertEqual(self.store.row_spacing_percent(), 40)
 
+    def test_drag_handle_setting_is_validated_and_survives_restart(self):
+        self.assertTrue(self.store.drag_handle_enabled())
+        for invalid in (0, 1, "0", None):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                self.store.set_drag_handle_enabled(invalid)
+        self.store.set_drag_handle_enabled(False)
+        self.assertFalse(self.store.drag_handle_enabled())
+        self.store.close()
+        self.store = Store(self.path)
+        self.assertFalse(self.store.drag_handle_enabled())
+        self.store.set_drag_handle_enabled(True)
+        self.assertTrue(self.store.drag_handle_enabled())
+
 
 if __name__ == "__main__":
     unittest.main()

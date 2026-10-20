@@ -160,6 +160,56 @@ class UiTests(unittest.TestCase):
         self.assertTrue(task.expanded)
         self.assertIs(row.expand.get_child(), row.title)
 
+    def test_drag_handle_toggle_keeps_title_and_status_in_place(self):
+        _, row = self.add_task("A task with a stable title")
+        pump()
+
+        def bounds(widget):
+            valid, rectangle = widget.compute_bounds(row)
+            self.assertTrue(valid)
+            return (rectangle.get_x(), rectangle.get_y(),
+                    rectangle.get_width(), rectangle.get_height())
+
+        self.assertTrue(self.window.drag_handle_check.get_active())
+        self.assertTrue(row.drag_handle.get_visible())
+        self.assertIs(row.status.get_next_sibling(), row.drag_slot)
+        self.assertLessEqual(row.drag_slot.get_width(), 24)
+        original = tuple(bounds(widget) for widget in (row.title, row.status, row.drag_slot))
+
+        self.window.drag_handle_check.set_active(False)
+        pump()
+        self.assertFalse(row.drag_handle.get_visible())
+        self.assertFalse(self.store.drag_handle_enabled())
+        self.assertEqual(original, tuple(bounds(widget)
+                                         for widget in (row.title, row.status, row.drag_slot)))
+
+        self.window.drag_handle_check.set_active(True)
+        pump()
+        self.assertTrue(row.drag_handle.get_visible())
+        self.assertEqual(original, tuple(bounds(widget)
+                                         for widget in (row.title, row.status, row.drag_slot)))
+
+        self.window.drag_handle_check.set_active(False)
+        self.window.destroy()
+        pump()
+        self.window = TodoWindow(self.application, self.store)
+        self.window.present()
+        pump()
+        restored_row = next(w for w in descendants(self.window.list)
+                            if isinstance(w, TaskRow) and w.task is not None)
+        self.assertFalse(self.window.drag_handle_check.get_active())
+        self.assertFalse(restored_row.drag_handle.get_visible())
+
+    def test_drag_handle_toggle_recovers_from_save_failure(self):
+        _, row = self.add_task()
+        with patch.object(self.store, "set_drag_handle_enabled",
+                          side_effect=sqlite3.OperationalError("disk is full")):
+            self.window.drag_handle_check.set_active(False)
+        self.assertTrue(self.window.drag_handle_check.get_active())
+        self.assertTrue(row.drag_handle.get_visible())
+        self.assertTrue(self.store.drag_handle_enabled())
+        self.assertIn("disk is full", self.window.message.get_text())
+
     def test_row_spacing_slider_updates_rows_and_persists(self):
         add_row = next(w for w in descendants(self.window.list)
                        if isinstance(w, AddTaskRow))
@@ -209,7 +259,7 @@ class UiTests(unittest.TestCase):
         for percent in (100, 40):
             self.window.row_spacing_scale.set_value(percent)
             pump()
-            self.assertGreaterEqual(row.drag_handle.get_width(), 28)
+            self.assertGreaterEqual(row.drag_handle.get_width(), 20)
             for dot in dots:
                 self.assertGreaterEqual(dot.get_width(), 4)
                 self.assertGreaterEqual(dot.get_height(), 4)
