@@ -37,7 +37,9 @@ make test       # storage tests; standard library only, no display required
 make test-ui    # GTK integration tests; requires the Ubuntu xvfb package
 ```
 
-The UI tests start and stop their own virtual display, so they do not show
-windows on your desktop.
+Install the display dependency with `sudo apt install xvfb` if needed. The UI
+tests start and stop a private Xvfb display, so their windows do not appear on
+your desktop. Run them with `make test-ui`; Xephyr creates a visible window and
+should not be used for test runs.
 
 Tests use temporary databases and do not modify your task list.

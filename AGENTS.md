@@ -25,6 +25,7 @@ This project implements a to-do app that runs natively on Ubuntu Desktop.
 # Verification
 
 - Run relevant tests, linting and type checking after implementation.
+- Run GTK UI tests with `make test-ui`. It launches a private Xvfb display, so test windows stay off the desktop. Never start Xephyr for tests: Xephyr opens a visible window. If Xvfb is unavailable, install Ubuntu's `xvfb` package or report the UI tests as unverified; do not substitute a visible display server.
 - If a test fails to pass, always ask for approval before editing it with a brief description of why the test needs to change.
 - Report the commands run and their outcomes.
 - Clearly identify anything that could not be verified.
