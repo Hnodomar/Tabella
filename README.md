@@ -34,13 +34,10 @@ Run `make install` again after updating the source.
 
 ```sh
 make test       # storage tests; standard library only, no display required
-make test-ui    # GTK integration tests; requires a graphical display
+make test-ui    # GTK integration tests; requires the Ubuntu xvfb package
 ```
 
-For a headless machine with `xvfb` installed:
-
-```sh
-xvfb-run -a make test-ui
-```
+The UI tests start and stop their own virtual display, so they do not show
+windows on your desktop.
 
 Tests use temporary databases and do not modify your task list.
