@@ -12,9 +12,11 @@ This project implements a to-do app that runs natively on Ubuntu Desktop.
 - Check the current branch with "git branch --show-current".
 - Never commit to the master git branch.
 - Always checkout a separate git branch named "codex/<descriptive_name>" before making changes.
+- Always create a new worktree for the current session such that other agents making changes do not interfere with your work.
 - All branches created must use the "codex/" prefix.
 - Always complete one coherent, working change and verify it before committing it with git according to Conventional Commit v1.0.0 guidelines https://www.conventionalcommits.org/en/v1.0.0/.
 - Always add a concise summary of what changed, why it changed and what the effect is (if there is any) to each secondary commit message via a second "-m" argument in "git commit".
+- After committing a verified change, push its `codex/` branch and open a pull request targeting `master` for review. Do not merge the pull request yourself. Include the change summary and verification results in the pull request description.
 - Before every commit, run the relevant tests, linting and type checking.
 - Never include pre-existing user changes in commits.
 

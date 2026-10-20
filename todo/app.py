@@ -14,6 +14,22 @@ from .storage import STATUSES, Store
 
 SYMBOLS = ("○", "◐", "✓")
 APP_ID = "io.github.simpletodo.Desktop"
+ROW_HEIGHT = 44
+ROW_VERTICAL_MARGIN = 4
+ADD_TASK_ROW_CSS = b"""
+    .add-task-row {
+        background-color: alpha(currentColor, 0.08);
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+        padding: 0;
+        margin: 0;
+        font-size: 24px;
+    }
+    .add-task-row:hover {
+        background-color: alpha(currentColor, 0.14);
+    }
+"""
 
 
 def margins(widget, value):
@@ -33,17 +49,54 @@ class Task(GObject.Object):
         self.created_at = record["created_at"]
         self.body = None
         self.expanded = False
+        self.focus_title = False
+
+
+class AddTask(GObject.Object):
+    """The permanent first item in the virtualized list."""
+
+
+class AddTaskRow(Gtk.Button):
+    def __init__(self, window):
+        super().__init__(
+            label="+", height_request=ROW_HEIGHT - 2 * ROW_VERTICAL_MARGIN,
+            hexpand=True,
+        )
+        self.set_has_frame(False)
+        self.add_css_class("add-task-row")
+        provider = Gtk.CssProvider()
+        provider.load_from_data(ADD_TASK_ROW_CSS)
+        self.get_style_context().add_provider(
+            provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+        self.set_tooltip_text("Add a task")
+        self.update_property([Gtk.AccessibleProperty.LABEL], ["Add a task"])
+        self.connect("clicked", window.add_task)
+
+
+class AddTaskItem(Gtk.Box):
+    """Give the add button the same outer spacing as a task row."""
+
+    def __init__(self, window):
+        super().__init__()
+        margins(self, 8)
+        self.set_margin_top(ROW_VERTICAL_MARGIN)
+        self.set_margin_bottom(ROW_VERTICAL_MARGIN)
+        self.append(AddTaskRow(window))
 
 
 class TaskRow(Gtk.Box):
     def __init__(self, window):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.set_size_request(-1, ROW_HEIGHT - 2 * ROW_VERTICAL_MARGIN)
         self.window = window
         self.task = None
         self.handler = None
         self.loading = False
         self.details = None
         margins(self, 8)
+        self.set_margin_top(ROW_VERTICAL_MARGIN)
+        self.set_margin_bottom(ROW_VERTICAL_MARGIN)
 
         header = Gtk.Box(spacing=8)
         self.append(header)
@@ -68,7 +121,15 @@ class TaskRow(Gtk.Box):
         self.handler = task.connect("changed", self.refresh_header)
         self.refresh_header()
         if task.expanded:
-            self.show_details()
+            if self.show_details() and task.focus_title:
+                GLib.idle_add(self.focus_new_title, task)
+
+    def focus_new_title(self, task):
+        if self.task is task and self.details is not None:
+            self.title_entry.grab_focus()
+            self.title_entry.select_region(0, -1)
+            task.focus_title = False
+        return GLib.SOURCE_REMOVE
 
     def unbind(self):
         if self.task is not None:
@@ -126,7 +187,7 @@ class TaskRow(Gtk.Box):
         self.details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.details.set_margin_start(32)
         self.details.set_margin_end(62)
-        self.details.set_margin_bottom(8)
+        self.details.set_margin_bottom(4)
         self.append(self.details)
         created = datetime.fromisoformat(self.task.created_at).astimezone()
         date = Gtk.Label(label=created.strftime("Created %d %b %Y at %H:%M:%S %Z"), xalign=0)
@@ -140,13 +201,13 @@ class TaskRow(Gtk.Box):
         focus.connect("leave", self.title_left)
         self.title_entry.add_controller(focus)
         self.details.append(self.title_entry)
-        self.details.append(Gtk.Label(label="Notes (optional)", xalign=0))
+        self.details.append(Gtk.Label(label="Notes", xalign=0))
         text = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR)
         text.set_top_margin(8)
         text.set_bottom_margin(8)
         text.set_left_margin(8)
         text.set_right_margin(8)
-        text.update_property([Gtk.AccessibleProperty.LABEL], ["Notes (optional)"])
+        text.update_property([Gtk.AccessibleProperty.LABEL], ["Notes"])
         self.body_buffer = text.get_buffer()
         self.body_buffer.connect("changed", self.body_changed)
         scroll = Gtk.ScrolledWindow(min_content_height=110, max_content_height=240)
@@ -214,8 +275,9 @@ class TodoWindow(Gtk.ApplicationWindow):
         )
         self.internal_theme = store.internal_theme()
         self.use_ubuntu_theme = store.ubuntu_theme_enabled()
-        self.model = Gio.ListStore.new(Task)
-        self.model.splice(0, 0, [Task(record) for record in store.list_tasks()])
+        self._applying_appearance = False
+        self.model = Gio.ListStore.new(GObject.Object)
+        self.model.splice(0, 0, [AddTask(), *[Task(record) for record in store.list_tasks()]])
         self.connect("close-request", self.on_close)
 
         header = Gtk.HeaderBar()
@@ -224,10 +286,9 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.theme_button.add_css_class("flat")
         self.theme_button.set_child(self.icon("sun.svg"))
         self.theme_button.connect("clicked", self.toggle_internal_theme)
-        header.pack_end(self.theme_button)
 
         self.settings_button = Gtk.MenuButton()
-        self.settings_button.add_css_class("flat")
+        self.settings_button.set_has_frame(False)
         self.settings_button.set_child(self.icon("settings.svg"))
         self.settings_button.set_tooltip_text("Settings")
         self.settings_button.update_property(
@@ -252,6 +313,7 @@ class TodoWindow(Gtk.ApplicationWindow):
         popover.set_child(settings_menu)
         self.settings_button.set_popover(popover)
         header.pack_end(self.settings_button)
+        header.pack_end(self.theme_button)
         self.set_titlebar(header)
         self.settings.connect(
             "notify::gtk-application-prefer-dark-theme", self.on_system_theme_changed
@@ -262,41 +324,18 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.apply_appearance()
         root = margins(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), 16)
         self.set_child(root)
-        add_row = Gtk.Box(spacing=8)
-        self.new_title = Gtk.Entry(placeholder_text="What needs doing?", hexpand=True)
-        self.new_title.update_property([Gtk.AccessibleProperty.LABEL], ["New task title"])
-        self.new_title.connect("activate", self.add_task)
-        add_row.append(self.new_title)
-        add = Gtk.Button(label="Add task")
-        add.add_css_class("suggested-action")
-        add.connect("clicked", self.add_task)
-        add_row.append(add)
-        root.append(add_row)
-
-        columns = Gtk.Box()
-        columns.append(Gtk.Label(label="Title", xalign=0, hexpand=True, margin_start=20))
-        columns.append(Gtk.Label(label="Status", width_request=70))
-        root.append(columns)
 
         factory = Gtk.SignalListItemFactory()
         factory.connect("setup", lambda _, item: item.set_child(TaskRow(self)))
-        factory.connect("bind", lambda _, item: item.get_child().bind(item.get_item()))
-        factory.connect("unbind", lambda _, item: item.get_child().unbind())
+        factory.connect("bind", self.bind_list_item)
+        factory.connect("unbind", self.unbind_list_item)
         self.list = Gtk.ListView(model=Gtk.NoSelection.new(self.model), factory=factory)
         self.list.set_show_separators(True)
-        scroll = Gtk.ScrolledWindow(vexpand=True, has_frame=True)
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroll.set_child(self.list)
-        self.stack = Gtk.Stack(vexpand=True)
-        self.stack.add_named(scroll, "tasks")
-        empty = Gtk.Label(label="No tasks yet.\nAdd your first task above.", justify=Gtk.Justification.CENTER)
-        empty.add_css_class("dim-label")
-        self.stack.add_named(empty, "empty")
-        root.append(self.stack)
+        self.scroll = Gtk.ScrolledWindow(vexpand=True, has_frame=True)
+        self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.scroll.set_child(self.list)
+        root.append(self.scroll)
 
-        legend = Gtk.Label(label="○  Not done     ◐  In progress     ✓  Done", xalign=0)
-        legend.add_css_class("dim-label")
-        root.append(legend)
         footer = Gtk.Box(spacing=8)
         self.message = Gtk.Label(xalign=0, hexpand=True, wrap=True, selectable=True)
         self.message.add_css_class("dim-label")
@@ -306,7 +345,25 @@ class TodoWindow(Gtk.ApplicationWindow):
         footer.append(self.retry)
         root.append(footer)
         self.update_message()
-        self.new_title.grab_focus()
+
+    def bind_list_item(self, _, item):
+        item.set_activatable(False)
+        item.set_selectable(False)
+        model_item = item.get_item()
+        child = item.get_child()
+        if isinstance(model_item, AddTask):
+            if not isinstance(child, AddTaskItem):
+                item.set_child(AddTaskItem(self))
+        else:
+            if not isinstance(child, TaskRow):
+                child = TaskRow(self)
+                item.set_child(child)
+            child.bind(model_item)
+
+    def unbind_list_item(self, _, item):
+        child = item.get_child()
+        if isinstance(child, TaskRow):
+            child.unbind()
 
     def icon_path(self, name):
         from pathlib import Path
@@ -330,6 +387,8 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.theme_button.update_property([Gtk.AccessibleProperty.LABEL], [label])
 
     def apply_appearance(self):
+        if self._applying_appearance:
+            return
         if self.use_ubuntu_theme:
             theme_name = self.system_theme_name
             prefers_dark = self.system_prefers_dark
@@ -337,21 +396,25 @@ class TodoWindow(Gtk.ApplicationWindow):
             # Use GTK's built-in light/dark variants when Ubuntu integration is off.
             theme_name = "Adwaita"
             prefers_dark = self.internal_theme == "dark"
-        self.settings.set_property("gtk-theme-name", theme_name)
-        self.settings.set_property("gtk-application-prefer-dark-theme", prefers_dark)
+        self._applying_appearance = True
+        try:
+            self.settings.set_property("gtk-theme-name", theme_name)
+            self.settings.set_property("gtk-application-prefer-dark-theme", prefers_dark)
+        finally:
+            self._applying_appearance = False
         self.refresh_theme_button()
 
     def on_system_theme_changed(self, *_):
         if self.use_ubuntu_theme:
             self.refresh_theme_button()
-        else:
+        elif not self._applying_appearance:
             self.apply_appearance()
 
     def on_system_theme_name_changed(self, *_):
         if self.use_ubuntu_theme:
             self.system_theme_name = self.settings.get_property("gtk-theme-name")
             self.refresh_theme_button()
-        else:
+        elif not self._applying_appearance:
             self.apply_appearance()
 
     def toggle_internal_theme(self, *_):
@@ -388,18 +451,15 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.apply_appearance()
 
     def add_task(self, *_):
-        title = self.new_title.get_text().strip()
-        if not title:
-            self.new_title.grab_focus()
-            return
         try:
-            record = self.store.add(title)
+            record = self.store.add("New task")
         except Exception as error:
             self.report_error(error)
             return
-        self.model.insert(0, Task(record))
-        self.new_title.set_text("")
-        self.new_title.grab_focus()
+        task = Task(record)
+        task.expanded = True
+        task.focus_title = True
+        self.model.insert(1, task)
         self.update_message(clear_error=True)
 
     def queue_edit(self, task, **fields):
@@ -436,8 +496,7 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.retry.set_visible(bool(self.pending))
 
     def update_message(self, *, clear_error=False):
-        count = self.model.get_n_items()
-        self.stack.set_visible_child_name("tasks" if count else "empty")
+        count = self.model.get_n_items() - 1
         if clear_error and not self.pending:
             self.save_error = None
         if self.save_error is not None:
@@ -506,7 +565,14 @@ class TodoApplication(Gtk.Application):
                 dialog.present()
                 return
             provider = Gtk.CssProvider()
-            provider.load_from_data(b".status { font-size: 22px; }")
+            provider.load_from_data(b"""
+                .status { font-size: 22px; }
+                list row {
+                    padding: 0;
+                    margin: 0;
+                    border: 0;
+                }
+            """)
             Gtk.StyleContext.add_provider_for_display(
                 Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
             )

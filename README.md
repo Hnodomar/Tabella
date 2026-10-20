@@ -38,7 +38,8 @@ to inherit Ubuntu's appearance. When system theming is enabled, clicking the
 sun/moon button switches to the app's appearance and turns system inheritance
 off. Both preferences persist between runs.
 
-- Type a title and press Enter or click **Add task**.
+- Click the grey **+** row at the top of the list. A new task opens with its
+  title selected, ready to replace and edit.
 - Click a row's title or disclosure arrow to expand/collapse it.
 - Click its status symbol to cycle **○ not done → ◐ in progress → ✓ done → ○**.
   Tooltips and screen-reader labels also describe the status and next action.

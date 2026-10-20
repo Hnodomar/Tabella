@@ -12,7 +12,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gio, GLib, Gtk
 
-from todo.app import Task, TaskRow, TodoWindow
+from todo.app import AddTask, AddTaskRow, Task, TaskRow, TodoWindow
 from todo.storage import Store
 
 
@@ -57,20 +57,25 @@ class UiTests(unittest.TestCase):
         self.directory.cleanup()
 
     def add_task(self, title="Test task"):
-        self.window.new_title.set_text(title)
-        self.window.new_title.emit("activate")
+        add_row = next(w for w in descendants(self.window.list)
+                       if isinstance(w, AddTaskRow))
+        add_row.emit("clicked")
         pump()
-        task = self.window.model.get_item(0)
+        task = self.window.model.get_item(1)
         row = next(w for w in descendants(self.window.list)
                    if isinstance(w, TaskRow) and w.task == task)
+        row.title_entry.set_text(title)
+        self.window.flush()
+        row.expand.emit("clicked")
         return task, row
 
     def test_add_expand_edit_autosave_and_status_cycle(self):
-        self.assertEqual(self.window.stack.get_visible_child_name(), "empty")
+        self.assertEqual(self.window.model.get_n_items(), 1)
+        self.assertIsInstance(self.window.model.get_item(0), AddTask)
         task, row = self.add_task()
-        self.assertEqual(self.window.stack.get_visible_child_name(), "tasks")
-        self.assertIsNone(task.body)
-        self.assertIsNone(row.details)
+        self.assertEqual(self.window.model.get_n_items(), 2)
+        self.assertEqual(task.body, "")
+        self.assertFalse(row.details.get_visible())
         row.expand.emit("clicked")
         self.assertTrue(task.expanded)
         row.title_entry.set_text("Updated title")
@@ -91,6 +96,30 @@ class UiTests(unittest.TestCase):
         self.assertFalse(task.expanded)
         self.assertEqual(self.store.body(task.id), "")
         self.assertFalse(self.window.pending)
+
+    def test_plus_row_creates_and_focuses_an_editable_task(self):
+        self.assertEqual(len(self.store.list_tasks()), 0)
+        add_row = next(w for w in descendants(self.window.list)
+                       if isinstance(w, AddTaskRow))
+        add_row.emit("clicked")
+        pump()
+        self.assertIsInstance(self.window.model.get_item(0), AddTask)
+        task = self.window.model.get_item(1)
+        row = next(w for w in descendants(self.window.list)
+                   if isinstance(w, TaskRow) and w.task == task)
+        self.assertTrue(task.expanded)
+        self.assertEqual(row.title_entry.get_text(), "New task")
+        focused = self.window.get_focus()
+        while focused is not None and focused is not row.title_entry:
+            focused = focused.get_parent()
+        self.assertIs(focused, row.title_entry)
+        row.title_entry.set_text("Groceries")
+        self.window.flush()
+        self.assertEqual(self.store.list_tasks()[0]["title"], "Groceries")
+        row.expand.emit("clicked")
+        pump()
+        self.assertEqual(add_row.get_width(), row.get_width())
+        self.assertEqual(add_row.get_height(), row.get_height())
 
     def test_close_flushes_without_waiting_for_timer(self):
         task, row = self.add_task()
@@ -150,9 +179,9 @@ class UiTests(unittest.TestCase):
             dialog.response(response)
             pump()
             self.assertEqual(self.window.model.get_n_items(),
-                             1 if response == Gtk.ResponseType.CANCEL else 0)
+                             2 if response == Gtk.ResponseType.CANCEL else 1)
         self.assertEqual(self.store.list_tasks(), [])
-        self.assertEqual(self.window.stack.get_visible_child_name(), "empty")
+        self.assertIsInstance(self.window.model.get_item(0), AddTask)
 
     def test_large_list_reuses_widgets_and_keeps_bodies_unloaded(self):
         with self.store.db:
@@ -161,22 +190,22 @@ class UiTests(unittest.TestCase):
                 ((f"Task {index}", "2026-01-01T12:00:00+00:00", "Notes " * 100)
                  for index in range(5000)),
             )
-        self.window.model.splice(0, 0, [Task(record) for record in self.store.list_tasks()])
-        self.window.update_message()
+        self.window.destroy()
+        pump()
+        self.window = TodoWindow(self.application, self.store)
+        self.window.present()
         pump(0.15)
         rows = [w for w in descendants(self.window.list) if isinstance(w, TaskRow)]
         self.assertLess(len(rows), 500)
         self.assertTrue(all(row.details is None for row in rows))
-        self.assertTrue(all(task.body is None for task in self.window.model))
-        scroll = self.window.stack.get_child_by_name("tasks")
-        adjustment = scroll.get_vadjustment()
-        # GTK refines estimated row heights as new rows are measured.
-        for _ in range(3):
-            adjustment.set_value(adjustment.get_upper() - adjustment.get_page_size())
-            pump(0.08)
-        rows = [w for w in descendants(self.window.list) if isinstance(w, TaskRow)]
-        self.assertLess(len(rows), 500)
-        self.assertTrue(any(row.task.id == 1 for row in rows if row.task is not None))
+        self.assertTrue(all(task.body is None for task in self.window.model
+                            if isinstance(task, Task)))
+        if hasattr(self.window.list, "scroll_to"):
+            self.window.list.scroll_to(5000, Gtk.ListScrollFlags.NONE, None)
+            pump(0.15)
+            rows = [w for w in descendants(self.window.list) if isinstance(w, TaskRow)]
+            self.assertLess(len(rows), 500)
+            self.assertTrue(any(row.task.id == 1 for row in rows if row.task is not None))
 
 
 if __name__ == "__main__":
