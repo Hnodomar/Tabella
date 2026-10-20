@@ -113,10 +113,22 @@ class TaskRow(Gtk.Box):
         self.loading = False
         self.details = None
 
-        header = Gtk.Box(spacing=8)
+        header = Gtk.Box(spacing=4)
         self.append(header)
-        self.drag_handle = Gtk.Box()
-        self.drag_handle.set_size_request(28, -1)
+        self.expand = Gtk.Button(hexpand=True)
+        self.expand.add_css_class("flat")
+        self.title = Gtk.Label(xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END)
+        self.expand.set_child(self.title)
+        self.expand.connect("clicked", self.toggle_expanded)
+        header.append(self.expand)
+        self.status = Gtk.Button(width_request=54)
+        self.status.set_margin_start(4)
+        self.status.add_css_class("flat")
+        self.status.add_css_class("status")
+        self.status.connect("clicked", self.cycle_status)
+        header.append(self.status)
+        self.drag_slot = Gtk.Box(width_request=20)
+        self.drag_handle = Gtk.Box(visible=window.drag_handle_enabled)
         self.drag_handle.set_tooltip_text("Drag to reorder task")
         self.drag_handle.update_property(
             [Gtk.AccessibleProperty.LABEL], ["Drag to reorder task"]
@@ -134,18 +146,8 @@ class TaskRow(Gtk.Box):
         self.drag_source.set_button(1)
         self.drag_source.connect("prepare", self.prepare_drag)
         self.drag_handle.add_controller(self.drag_source)
-        header.append(self.drag_handle)
-        self.expand = Gtk.Button(hexpand=True)
-        self.expand.add_css_class("flat")
-        self.title = Gtk.Label(xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END)
-        self.expand.set_child(self.title)
-        self.expand.connect("clicked", self.toggle_expanded)
-        header.append(self.expand)
-        self.status = Gtk.Button(width_request=54)
-        self.status.add_css_class("flat")
-        self.status.add_css_class("status")
-        self.status.connect("clicked", self.cycle_status)
-        header.append(self.status)
+        self.drag_slot.append(self.drag_handle)
+        header.append(self.drag_slot)
 
         self.drop_target = Gtk.DropTarget.new(Task, Gdk.DragAction.MOVE)
         self.drop_target.connect("motion", self.drag_motion)
@@ -158,7 +160,8 @@ class TaskRow(Gtk.Box):
     def apply_spacing(self, percent):
         row_height = scaled_spacing(ROW_HEIGHT - 2 * ROW_VERTICAL_MARGIN, percent)
         self.set_size_request(-1, row_height)
-        self.drag_handle.set_size_request(28, row_height)
+        self.drag_slot.set_size_request(20, row_height)
+        self.drag_handle.set_size_request(20, row_height)
         self.set_margin_start(scaled_spacing(8, percent))
         self.set_margin_end(scaled_spacing(8, percent))
         self.set_margin_top(ROW_VERTICAL_MARGIN * percent // 100)
@@ -345,6 +348,7 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.internal_theme = store.internal_theme()
         self.use_ubuntu_theme = store.ubuntu_theme_enabled()
         self.row_spacing_percent = store.row_spacing_percent()
+        self.drag_handle_enabled = store.drag_handle_enabled()
         self._applying_appearance = False
         self.model = Gio.ListStore.new(GObject.Object)
         self.model.splice(0, 0, [AddTask(), *[Task(record) for record in store.list_tasks()]])
@@ -381,6 +385,12 @@ class TodoWindow(Gtk.ApplicationWindow):
             "toggled", self.toggle_ubuntu_theme
         )
         settings_menu.append(self.ubuntu_theme_check)
+        self.drag_handle_check = Gtk.CheckButton(label="Show drag handle")
+        self.drag_handle_check.set_active(self.drag_handle_enabled)
+        self._drag_handle_handler = self.drag_handle_check.connect(
+            "toggled", self.toggle_drag_handle
+        )
+        settings_menu.append(self.drag_handle_check)
         settings_menu.append(Gtk.Label(label="Row spacing (%)", xalign=0))
         self.row_spacing_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 40, 100, 1)
         self.row_spacing_scale.set_digits(0)
@@ -487,6 +497,30 @@ class TodoWindow(Gtk.ApplicationWindow):
         child = widget.get_first_child()
         while child is not None:
             self.apply_row_spacing(child)
+            child = child.get_next_sibling()
+
+    def toggle_drag_handle(self, button):
+        enabled = button.get_active()
+        if enabled == self.drag_handle_enabled:
+            return
+        try:
+            self.store.set_drag_handle_enabled(enabled)
+        except Exception as error:
+            button.handler_block(self._drag_handle_handler)
+            button.set_active(self.drag_handle_enabled)
+            button.handler_unblock(self._drag_handle_handler)
+            self.report_error(error)
+            return
+        self.drag_handle_enabled = enabled
+        self.apply_drag_handle_visibility(self.list)
+        self.update_message(clear_error=True)
+
+    def apply_drag_handle_visibility(self, widget):
+        if isinstance(widget, TaskRow):
+            widget.drag_handle.set_visible(self.drag_handle_enabled)
+        child = widget.get_first_child()
+        while child is not None:
+            self.apply_drag_handle_visibility(child)
             child = child.get_next_sibling()
 
     def icon_path(self, name):
