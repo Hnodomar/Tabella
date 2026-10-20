@@ -172,7 +172,7 @@ class UiTests(unittest.TestCase):
 
         self.assertTrue(self.window.drag_handle_check.get_active())
         self.assertTrue(row.drag_handle.get_visible())
-        self.assertIs(row.status.get_next_sibling(), row.drag_slot)
+        self.assertIs(row.drag_slot.get_next_sibling(), row.status)
         self.assertLessEqual(row.drag_slot.get_width(), 24)
         original = tuple(bounds(widget) for widget in (row.title, row.status, row.drag_slot))
 
