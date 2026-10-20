@@ -50,7 +50,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk
 
-from todo.app import Task, TaskRow, TodoWindow
+from todo.app import StatusItem, StatusRow, Task, TaskRow, TodoWindow
 from todo.storage import Store
 
 
@@ -112,8 +112,9 @@ class UiTests(unittest.TestCase):
         row.expand.emit("clicked")
         return task, row
 
-    def test_list_fills_window_and_status_occupies_bottom_edge(self):
+    def test_list_fills_window_and_status_is_its_last_row(self):
         root = self.window.get_child()
+        self.assertIs(root, self.window.scroll)
         self.assertEqual(root.get_width(), self.window.get_width())
         # The native window border may consume one pixel below the content.
         self.assertIn(
@@ -130,15 +131,25 @@ class UiTests(unittest.TestCase):
         self.assertEqual(list_bounds.get_width(), root.get_width())
         self.assertEqual(list_bounds.get_height(), root.get_height())
 
-        status_bar = self.window.message.get_parent()
+        self.assertIsInstance(self.window.list_model.get_item(0), StatusItem)
+        self.assertEqual(self.window.list_model.get_n_items(), 1)
+        status_bar = self.window.status_row
+        self.assertIsInstance(status_bar, StatusRow)
+        self.assertIn(status_bar, list(descendants(self.window.list)))
+        self.assertFalse(status_bar.get_parent().has_css_class("activatable"))
+        self.assertFalse(self.window.message.get_selectable())
         _, status_bounds = status_bar.compute_bounds(root)
         self.assertEqual(status_bounds.get_x(), 0)
-        self.assertGreater(status_bounds.get_y(), 0)
-        self.assertEqual(status_bounds.get_y() + status_bounds.get_height(), root.get_height())
+        self.assertGreaterEqual(status_bounds.get_y(), 0)
         self.assertEqual(status_bounds.get_width(), root.get_width())
-        self.assertGreaterEqual(self.window.list.get_margin_bottom(), status_bounds.get_height())
         _, message_bounds = self.window.message.compute_bounds(root)
         self.assertLessEqual(message_bounds.get_x(), 8)
+        self.window.list.emit("activate", 0)
+        self.assertEqual(self.window.model.get_n_items(), 0)
+        self.window.add_button.emit("clicked")
+        pump()
+        self.assertIsInstance(self.window.list_model.get_item(1), StatusItem)
+        self.assertIn("1 task", self.window.message.get_text())
 
     def test_titlebar_is_compact_and_controls_fit(self):
         header = self.window.get_titlebar()
@@ -463,6 +474,11 @@ class UiTests(unittest.TestCase):
             rows = [w for w in descendants(self.window.list) if isinstance(w, TaskRow)]
             self.assertLess(len(rows), 500)
             self.assertTrue(any(row.task.id == 1 for row in rows if row.task is not None))
+            self.window.list.scroll_to(self.window.list_model.get_n_items() - 1,
+                                       Gtk.ListScrollFlags.NONE, None)
+            pump(0.15)
+            self.assertIn(self.window.status_row, list(descendants(self.window.list)))
+            self.assertIn("5000 tasks", self.window.message.get_text())
 
 
 if __name__ == "__main__":

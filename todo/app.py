@@ -37,6 +37,11 @@ APP_CSS = b"""
         padding: 0;
         margin: 0;
     }
+    listview.todo-list > row {
+        padding: 0;
+        margin: 0;
+        border: 0;
+    }
     .drag-dot {
         background-color: alpha(currentColor, 0.85);
         border-radius: 4px;
@@ -70,6 +75,26 @@ class Task(GObject.Object):
         self.body = None
         self.expanded = False
         self.focus_title = False
+
+
+class StatusItem(GObject.Object):
+    """The permanent last item in the virtualized list."""
+
+
+class StatusRow(Gtk.Box):
+    def __init__(self, window):
+        super().__init__(spacing=8, hexpand=True)
+        self.add_css_class("view")
+        self.message = Gtk.Label(xalign=0, hexpand=True, wrap=True, selectable=False)
+        self.message.add_css_class("dim-label")
+        self.message.set_margin_start(8)
+        self.message.set_margin_top(4)
+        self.message.set_margin_bottom(4)
+        self.append(self.message)
+        self.retry = Gtk.Button(label="Retry save", visible=False)
+        self.retry.set_margin_end(8)
+        self.retry.connect("clicked", lambda *_: window.flush())
+        self.append(self.retry)
 
 
 class TaskRow(Gtk.Box):
@@ -392,16 +417,22 @@ class TodoWindow(Gtk.ApplicationWindow):
             "notify::gtk-theme-name", self.on_system_theme_name_changed
         )
         self.apply_appearance()
-        root = Gtk.Overlay()
-        self.set_child(root)
-
+        self.status_row = StatusRow(self)
+        self.message = self.status_row.message
+        self.retry = self.status_row.retry
+        self.status_model = Gio.ListStore.new(GObject.Object)
+        self.status_model.append(StatusItem())
+        sections = Gio.ListStore.new(Gio.ListStore)
+        sections.append(self.model)
+        sections.append(self.status_model)
+        self.list_model = Gtk.FlattenListModel.new(sections)
         factory = Gtk.SignalListItemFactory()
         factory.connect("setup", lambda _, item: item.set_child(TaskRow(self)))
         factory.connect("bind", self.bind_list_item)
         factory.connect("unbind", self.unbind_list_item)
-        self.list = Gtk.ListView(model=Gtk.NoSelection.new(self.model), factory=factory)
+        self.list = Gtk.ListView(model=Gtk.NoSelection.new(self.list_model), factory=factory)
+        self.list.add_css_class("todo-list")
         self.list.set_show_separators(True)
-        self.list.set_margin_bottom(44)
         provider = Gtk.CssProvider()
         provider.load_from_data(APP_CSS)
         Gtk.StyleContext.add_provider_for_display(
@@ -410,34 +441,28 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.scroll = Gtk.ScrolledWindow(vexpand=True, has_frame=False)
         self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.scroll.set_child(self.list)
-        root.set_child(self.scroll)
-
-        footer = Gtk.Box(spacing=8)
-        footer.add_css_class("view")
-        footer.set_halign(Gtk.Align.FILL)
-        footer.set_valign(Gtk.Align.END)
-        self.message = Gtk.Label(xalign=0, hexpand=True, wrap=True, selectable=True)
-        self.message.add_css_class("dim-label")
-        self.message.set_margin_start(8)
-        self.message.set_margin_top(4)
-        self.message.set_margin_bottom(4)
-        footer.append(self.message)
-        self.retry = Gtk.Button(label="Retry save", visible=False)
-        self.retry.set_margin_end(8)
-        self.retry.connect("clicked", lambda *_: self.flush())
-        footer.append(self.retry)
-        root.add_overlay(footer)
+        self.set_child(self.scroll)
         self.update_message()
 
     def bind_list_item(self, _, item):
         item.set_selectable(False)
         item.set_activatable(False)
-        item.get_child().bind(item.get_item())
+        if isinstance(item.get_item(), StatusItem):
+            if item.get_child() is not self.status_row:
+                item.set_child(self.status_row)
+        else:
+            child = item.get_child()
+            if not isinstance(child, TaskRow):
+                child = TaskRow(self)
+                item.set_child(child)
+            child.bind(item.get_item())
 
     def unbind_list_item(self, _, item):
         child = item.get_child()
         if isinstance(child, TaskRow):
             child.unbind()
+        elif child is self.status_row:
+            item.set_child(None)
 
     def change_row_spacing(self, scale):
         percent = round(scale.get_value())
