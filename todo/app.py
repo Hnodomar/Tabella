@@ -45,6 +45,15 @@ APP_CSS = b"""
     .add-task-row {
         font-size: 24px;
     }
+    .drag-handle {
+        color: alpha(currentColor, 0.55);
+    }
+    .task-row.drop-before {
+        box-shadow: inset 0 2px currentColor;
+    }
+    .task-row.drop-after {
+        box-shadow: inset 0 -2px currentColor;
+    }
 """
 
 
@@ -84,6 +93,7 @@ class AddTaskRow(Gtk.Box):
 class TaskRow(Gtk.Box):
     def __init__(self, window):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.add_css_class("task-row")
         self.set_size_request(-1, ROW_HEIGHT - 2 * ROW_VERTICAL_MARGIN)
         self.window = window
         self.task = None
@@ -96,6 +106,19 @@ class TaskRow(Gtk.Box):
 
         header = Gtk.Box(spacing=8)
         self.append(header)
+        self.drag_handle = Gtk.Label(label="⋮⋮")
+        self.drag_handle.add_css_class("drag-handle")
+        self.drag_handle.set_size_request(28, ROW_HEIGHT - 2 * ROW_VERTICAL_MARGIN)
+        self.drag_handle.set_tooltip_text("Drag to reorder task")
+        self.drag_handle.update_property(
+            [Gtk.AccessibleProperty.LABEL], ["Drag to reorder task"]
+        )
+        self.drag_handle.set_cursor_from_name("grab")
+        self.drag_source = Gtk.DragSource(actions=Gdk.DragAction.MOVE)
+        self.drag_source.set_button(1)
+        self.drag_source.connect("prepare", self.prepare_drag)
+        self.drag_handle.add_controller(self.drag_source)
+        header.append(self.drag_handle)
         self.expand = Gtk.Button(hexpand=True)
         self.expand.add_css_class("flat")
         caption = Gtk.Box(spacing=10)
@@ -111,6 +134,33 @@ class TaskRow(Gtk.Box):
         self.status.add_css_class("status")
         self.status.connect("clicked", self.cycle_status)
         header.append(self.status)
+
+        self.drop_target = Gtk.DropTarget.new(Task, Gdk.DragAction.MOVE)
+        self.drop_target.connect("motion", self.drag_motion)
+        self.drop_target.connect("leave", self.drag_leave)
+        self.drop_target.connect("drop", self.drop_task)
+        self.add_controller(self.drop_target)
+
+    def prepare_drag(self, *_):
+        if self.task is None:
+            return None
+        return Gdk.ContentProvider.new_for_value(self.task)
+
+    def drag_motion(self, _, x, y):
+        self.remove_css_class("drop-before")
+        self.remove_css_class("drop-after")
+        self.add_css_class("drop-before" if y < self.get_height() / 2 else "drop-after")
+        return Gdk.DragAction.MOVE
+
+    def drag_leave(self, *_):
+        self.remove_css_class("drop-before")
+        self.remove_css_class("drop-after")
+
+    def drop_task(self, _, task, x, y):
+        self.drag_leave()
+        if self.task is None:
+            return False
+        return self.window.move_task(task, self.task, after=y >= self.get_height() / 2)
 
     def bind(self, task):
         self.task = task
@@ -128,6 +178,7 @@ class TaskRow(Gtk.Box):
         return GLib.SOURCE_REMOVE
 
     def unbind(self):
+        self.drag_leave()
         if self.task is not None:
             self.task.disconnect(self.handler)
         self.task = None
@@ -478,6 +529,30 @@ class TodoWindow(Gtk.ApplicationWindow):
         task.focus_title = True
         self.model.insert(1, task)
         self.update_message(clear_error=True)
+
+    def move_task(self, source, target, *, after):
+        if not isinstance(source, Task) or not isinstance(target, Task):
+            return False
+        source_found, source_index = self.model.find(source)
+        target_found, target_index = self.model.find(target)
+        if not source_found or not target_found:
+            return False
+        destination = target_index + int(after)
+        if source_index < destination:
+            destination -= 1
+        if destination == source_index:
+            return True
+        if not self.flush():
+            return False
+        try:
+            self.store.move(source.id, destination - 1)
+        except Exception as error:
+            self.report_error(error)
+            return False
+        self.model.splice(source_index, 1, [])
+        self.model.insert(destination, source)
+        self.update_message(clear_error=True)
+        return True
 
     def queue_edit(self, task, **fields):
         self.pending.setdefault(task.id, {}).update(fields)

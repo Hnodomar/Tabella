@@ -10,7 +10,8 @@ from unittest.mock import patch
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gio, GLib, Gtk
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gdk, Gio, GLib, Gtk
 
 from todo.app import AddTask, AddTaskRow, Task, TaskRow, TodoWindow
 from todo.storage import Store
@@ -163,6 +164,61 @@ class UiTests(unittest.TestCase):
         self.assertFalse(row.get_parent().has_css_class("activatable"))
         self.window.list.emit("activate", 1)
         self.assertEqual(self.window.model.get_n_items(), 2)
+
+    def test_dragging_rows_changes_and_saves_their_order(self):
+        first, _ = self.add_task("First")
+        second, _ = self.add_task("Second")
+        third, _ = self.add_task("Third")
+
+        def row_for(task):
+            return next(w for w in descendants(self.window.list)
+                        if isinstance(w, TaskRow) and w.task is task)
+
+        source = row_for(first)
+        self.assertIsInstance(source.drag_source.emit("prepare", 0, 0), Gdk.ContentProvider)
+        self.assertEqual(source.drag_source.get_actions(), Gdk.DragAction.MOVE)
+        target = row_for(third)
+        self.assertEqual(target.drop_target.emit("motion", 1, 0), Gdk.DragAction.MOVE)
+        self.assertTrue(target.has_css_class("drop-before"))
+        self.assertTrue(target.drop_target.emit("drop", first, 1, 0))
+        pump()
+        self.assertEqual([task.id for task in list(self.window.model)[1:]],
+                         [first.id, third.id, second.id])
+        self.assertEqual([row["id"] for row in self.store.list_tasks()],
+                         [first.id, third.id, second.id])
+
+        target = row_for(second)
+        self.assertTrue(target.drop_target.emit("drop", first, 1, target.get_height()))
+        pump()
+        self.assertEqual([task.id for task in list(self.window.model)[1:]],
+                         [third.id, second.id, first.id])
+        self.assertFalse(self.window.move_task(AddTask(), second, after=False))
+        self.assertIsInstance(self.window.model.get_item(0), AddTask)
+
+        self.window.destroy()
+        pump()
+        self.window = TodoWindow(self.application, self.store)
+        self.window.present()
+        pump()
+        self.assertEqual([task.id for task in list(self.window.model)[1:]],
+                         [third.id, second.id, first.id])
+
+    def test_failed_reorder_keeps_the_visible_order_and_saves_drafts(self):
+        first, _ = self.add_task("First")
+        second, _ = self.add_task("Second")
+        first_row = next(w for w in descendants(self.window.list)
+                         if isinstance(w, TaskRow) and w.task is first)
+        first_row.expand.emit("clicked")
+        first_row.body_buffer.set_text("Draft before moving")
+        with patch.object(self.store, "move", side_effect=sqlite3.OperationalError("disk is full")):
+            self.assertFalse(self.window.move_task(first, second, after=False))
+        self.assertEqual([task.id for task in list(self.window.model)[1:]],
+                         [second.id, first.id])
+        self.assertEqual(self.store.body(first.id), "Draft before moving")
+        self.assertIn("disk is full", self.window.message.get_text())
+        self.assertTrue(self.window.move_task(first, second, after=False))
+        self.assertEqual([task.id for task in list(self.window.model)[1:]],
+                         [first.id, second.id])
 
     def test_close_flushes_without_waiting_for_timer(self):
         task, row = self.add_task()
