@@ -18,6 +18,7 @@ This project implements a to-do app that runs natively on Ubuntu Desktop.
 - Always add a concise summary of what changed, why it changed and what the effect is (if there is any) to each secondary commit message via a second "-m" argument in "git commit".
 - Before raising a pull request, run `gh auth status`. If GitHub CLI is not authenticated in this environment, ask the user to run `gh auth login --web --git-protocol ssh`; never request or record their token.
 - After committing a verified change, run `git push -u origin HEAD` from its worktree, then use `gh pr create --base master` to open a pull request. Provide a title and description summarizing the change, why it was made, its effect, and the verification commands and results. Do not merge the pull request yourself.
+- Before ending a turn that opens or updates a pull request, fetch the latest `master` and confirm on GitHub that the PR is both mergeable and rebaseable. If either check reports conflicts, rebase onto `master`, resolve them, rerun relevant checks, push the updated branch, and check again.
 - Once a change's pull request has been merged, remove its worktree with `git worktree remove`. Preserve and report any uncommitted changes that prevent removal.
 - Before every commit, run the relevant tests, linting and type checking.
 - Never include pre-existing user changes in commits.
