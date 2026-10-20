@@ -51,8 +51,11 @@ APP_CSS = b"""
     .add-task-row {
         font-size: 24px;
     }
-    .drag-handle {
-        color: alpha(currentColor, 0.55);
+    .drag-dot {
+        background-color: alpha(currentColor, 0.85);
+        border-radius: 4px;
+        min-width: 4px;
+        min-height: 4px;
     }
     .task-row.drop-before {
         box-shadow: inset 0 2px currentColor;
@@ -112,14 +115,21 @@ class TaskRow(Gtk.Box):
 
         header = Gtk.Box(spacing=8)
         self.append(header)
-        self.drag_handle = Gtk.Label(label="⋮⋮")
-        self.drag_handle.add_css_class("drag-handle")
+        self.drag_handle = Gtk.Box()
         self.drag_handle.set_size_request(28, -1)
         self.drag_handle.set_tooltip_text("Drag to reorder task")
         self.drag_handle.update_property(
             [Gtk.AccessibleProperty.LABEL], ["Drag to reorder task"]
         )
         self.drag_handle.set_cursor_from_name("grab")
+        dots = Gtk.Grid(column_spacing=3, row_spacing=1,
+                        halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+        for row in range(3):
+            for column in range(2):
+                dot = Gtk.Box()
+                dot.add_css_class("drag-dot")
+                dots.attach(dot, column, row, 1, 1)
+        self.drag_handle.append(dots)
         self.drag_source = Gtk.DragSource(actions=Gdk.DragAction.MOVE)
         self.drag_source.set_button(1)
         self.drag_source.connect("prepare", self.prepare_drag)

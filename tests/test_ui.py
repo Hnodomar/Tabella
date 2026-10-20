@@ -190,6 +190,27 @@ class UiTests(unittest.TestCase):
         self.assertEqual(restored_row.get_margin_start(), 8)
         self.assertEqual(restored_row.drag_handle.get_size_request()[1], 36)
 
+    def test_drag_handle_dots_remain_visible_at_compact_spacing(self):
+        _, row = self.add_task()
+        dots = [widget for widget in descendants(row.drag_handle)
+                if widget.has_css_class("drag-dot")]
+        self.assertEqual(len(dots), 6)
+        self.assertIs(row.drag_source.get_widget(), row.drag_handle)
+        for percent in (100, 40):
+            self.window.row_spacing_scale.set_value(percent)
+            pump()
+            self.assertGreaterEqual(row.drag_handle.get_width(), 28)
+            for dot in dots:
+                self.assertGreaterEqual(dot.get_width(), 4)
+                self.assertGreaterEqual(dot.get_height(), 4)
+                _, bounds = dot.compute_bounds(row.drag_handle)
+                self.assertGreaterEqual(bounds.get_x(), 0)
+                self.assertGreaterEqual(bounds.get_y(), 0)
+                self.assertLessEqual(bounds.get_x() + bounds.get_width(),
+                                     row.drag_handle.get_width())
+                self.assertLessEqual(bounds.get_y() + bounds.get_height(),
+                                     row.drag_handle.get_height())
+
     def test_add_expand_edit_autosave_and_status_cycle(self):
         self.assertEqual(self.window.model.get_n_items(), 1)
         self.assertIsInstance(self.window.model.get_item(0), AddTask)
