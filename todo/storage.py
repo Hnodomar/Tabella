@@ -128,8 +128,8 @@ class Store:
         return int(row["value"]) if row is not None else 100
 
     def set_row_spacing_percent(self, percent):
-        if type(percent) is not int or not 60 <= percent <= 100:
-            raise ValueError("Row spacing must be between 60% and 100%.")
+        if type(percent) is not int or not 40 <= percent <= 100:
+            raise ValueError("Row spacing must be between 40% and 100%.")
         with self.db:
             self.db.execute(
                 "INSERT INTO preferences (key, value) VALUES ('row_spacing_percent', ?) "

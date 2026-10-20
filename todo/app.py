@@ -155,8 +155,8 @@ class TaskRow(Gtk.Box):
         self.drag_handle.set_size_request(28, row_height)
         self.set_margin_start(scaled_spacing(8, percent))
         self.set_margin_end(scaled_spacing(8, percent))
-        self.set_margin_top(scaled_spacing(ROW_VERTICAL_MARGIN, percent))
-        self.set_margin_bottom(scaled_spacing(ROW_VERTICAL_MARGIN, percent))
+        self.set_margin_top(ROW_VERTICAL_MARGIN * percent // 100)
+        self.set_margin_bottom(ROW_VERTICAL_MARGIN * percent // 100)
 
     def prepare_drag(self, *_):
         if self.task is None:
@@ -377,7 +377,7 @@ class TodoWindow(Gtk.ApplicationWindow):
         )
         settings_menu.append(self.ubuntu_theme_check)
         settings_menu.append(Gtk.Label(label="Row spacing (%)", xalign=0))
-        self.row_spacing_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 60, 100, 1)
+        self.row_spacing_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 40, 100, 1)
         self.row_spacing_scale.set_digits(0)
         self.row_spacing_scale.set_value_pos(Gtk.PositionType.RIGHT)
         self.row_spacing_scale.set_hexpand(True)
