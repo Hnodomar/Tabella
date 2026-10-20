@@ -159,6 +159,7 @@ class UiTests(unittest.TestCase):
         self.assertEqual(row.get_margin_start(), 8)
         self.assertEqual(row.get_margin_top(), 4)
         self.assertEqual(row.get_size_request()[1], 36)
+        self.assertEqual(row.drag_handle.get_size_request()[1], 36)
 
         self.assertEqual(self.window.row_spacing_scale.get_adjustment().get_lower(), 40)
         self.window.row_spacing_scale.set_value(40)
@@ -170,6 +171,7 @@ class UiTests(unittest.TestCase):
         self.assertEqual(row.get_margin_top(), 1)
         self.assertEqual(row.get_margin_bottom(), 1)
         self.assertEqual(row.get_size_request()[1], 14)
+        self.assertEqual(row.drag_handle.get_size_request()[1], 14)
         self.assertEqual(add_row.get_width(), add_row.get_parent().get_width())
         self.assertEqual(task.title, "Test task")
 
@@ -182,9 +184,11 @@ class UiTests(unittest.TestCase):
         restored_row = next(w for w in descendants(self.window.list)
                             if isinstance(w, TaskRow) and w.task is not None)
         self.assertEqual(restored_row.get_margin_start(), 3)
+        self.assertEqual(restored_row.drag_handle.get_size_request()[1], 14)
         self.window.row_spacing_scale.set_value(100)
         self.assertEqual(self.store.row_spacing_percent(), 100)
         self.assertEqual(restored_row.get_margin_start(), 8)
+        self.assertEqual(restored_row.drag_handle.get_size_request()[1], 36)
 
     def test_add_expand_edit_autosave_and_status_cycle(self):
         self.assertEqual(self.window.model.get_n_items(), 1)
