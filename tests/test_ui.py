@@ -351,6 +351,11 @@ class UiTests(unittest.TestCase):
         self.assertFalse(row.get_parent().has_css_class("activatable"))
         self.assertEqual(self.window.model.get_n_items(), 1)
 
+    def test_journal_launcher_icon_is_loadable(self):
+        icon = self.window.icon_path("io.github.simpletodo.Desktop.svg")
+        texture = Gdk.Texture.new_from_filename(str(icon))
+        self.assertEqual((texture.get_width(), texture.get_height()), (256, 256))
+
     def test_dragging_rows_changes_and_saves_their_order(self):
         first, _ = self.add_task("First")
         second, _ = self.add_task("Second")

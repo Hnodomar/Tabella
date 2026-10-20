@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="Worn brown journal">
+  <defs>
+    <linearGradient id="cover" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#9b6946"/>
+      <stop offset=".28" stop-color="#75482f"/>
+      <stop offset=".72" stop-color="#5a3223"/>
+      <stop offset="1" stop-color="#382019"/>
+    </linearGradient>
+    <linearGradient id="spine" x1="0" x2="1">
+      <stop stop-color="#281811"/>
+      <stop offset=".48" stop-color="#623c2b"/>
+      <stop offset="1" stop-color="#362018"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="0" x2="1">
+      <stop stop-color="#f5e9cf"/>
+      <stop offset=".55" stop-color="#d6bd96"/>
+      <stop offset="1" stop-color="#a8825b"/>
+    </linearGradient>
+    <linearGradient id="wear" x1="0" x2="1" y1="0" y2="1">
+      <stop stop-color="#dec08a" stop-opacity=".75"/>
+      <stop offset="1" stop-color="#dec08a" stop-opacity=".08"/>
+    </linearGradient>
+  </defs>
+  <g transform="rotate(-5 128 128)">
+    <path fill="#261914" opacity=".28" d="M46 32 215 29q13 2 14 16l3 175q-1 14-15 17L50 233q-13-1-16-14L30 48q1-12 16-16Z"/>
+    <path fill="#3c241b" stroke="#261710" stroke-width="5" d="M47 28 214 25q8 2 9 10l2 185q-1 8-9 10L49 226q-11-2-12-13L33 43q1-12 14-15Z"/>
+    <path fill="url(#paper)" stroke="#a88763" stroke-width="2" d="M61 37 210 35q7 1 7 8l2 167q0 8-8 10l-151-4Z"/>
+    <path fill="none" stroke="#a88261" stroke-width="1.5" opacity=".8" d="M211 42q-5 53 0 104t0 68M215 48q-4 56 1 106t-1 53M68 209q70 6 139 6M64 213q68 7 143 5"/>
+    <path fill="url(#cover)" stroke="#301b14" stroke-width="4" d="M41 24 192 22q11 1 12 13l3 174q0 13-12 15L48 220q-12-2-13-15L32 40q0-13 9-16Z"/>
+    <path fill="url(#spine)" d="M42 26 69 25q-5 96 2 194l-23-1q-11-2-12-14L34 42q0-13 8-16Z"/>
+    <path fill="none" stroke="#bc8757" stroke-width="2" opacity=".55" d="M44 33q-3 85 1 176M64 29q-5 97 1 183"/>
+    <path fill="#392219" opacity=".65" d="M46 45h22v10H46zm1 137h22v10H47z"/>
+    <path fill="none" stroke="#c0945e" stroke-width="3" d="M45 48h22m-22 5h22m-21 132h23m-22 5h23"/>
+    <path fill="none" stroke="#bd9463" stroke-width="2" opacity=".7" d="M78 36 188 34q6 0 6 7l2 163q0 8-7 8L81 209q-5-1-5-7L73 44q0-8 5-8Z"/>
+    <path fill="none" stroke="#d4ab73" stroke-width="1.5" stroke-dasharray="2 5" opacity=".7" d="M83 42 184 40q5 0 5 6l2 151q0 7-6 7l-99-2q-5 0-5-6L79 49q0-7 4-7Z"/>
+    <path fill="none" stroke="#d4ac74" stroke-width="2" opacity=".64" d="M109 81h54m-62 5h70m-55 87h46m-59 5h66"/>
+    <path fill="#42271c" stroke="#c29760" stroke-width="2" d="m135 101 25 26-25 27-25-27Z"/>
+    <path fill="none" stroke="#e3bb7c" stroke-width="2" d="m135 108 18 19-18 20-18-20Zm0 5v28m-10-14h20"/>
+    <path fill="#d9ae72" d="M134 123h3v8h-3zM131 127h9v3h-9z"/>
+    <path fill="none" stroke="url(#wear)" stroke-width="2" stroke-linecap="round" opacity=".55" d="m91 58 24-11m-17 146 20 8m65-150 7 13m-8 127 10-15m-101-71 8 2m73 57 14 5"/>
+    <path fill="#d1a472" opacity=".37" d="m88 52 3-5 7 1-4 3Zm82 145 10-3 4 5-12 1Zm-19-140 15-3 4 4-17 2Z"/>
+  </g>
+</svg>
