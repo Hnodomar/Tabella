@@ -121,6 +121,22 @@ class Store:
         ).fetchone()
         return row is None or row["value"] == "1"
 
+    def row_spacing_percent(self):
+        row = self.db.execute(
+            "SELECT value FROM preferences WHERE key = 'row_spacing_percent'"
+        ).fetchone()
+        return int(row["value"]) if row is not None else 100
+
+    def set_row_spacing_percent(self, percent):
+        if type(percent) is not int or not 60 <= percent <= 100:
+            raise ValueError("Row spacing must be between 60% and 100%.")
+        with self.db:
+            self.db.execute(
+                "INSERT INTO preferences (key, value) VALUES ('row_spacing_percent', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (str(percent),),
+            )
+
     def set_appearance(self, mode, use_ubuntu_theme):
         if mode not in ("light", "dark") or type(use_ubuntu_theme) is not bool:
             raise ValueError("Invalid appearance settings.")
