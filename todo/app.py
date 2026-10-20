@@ -16,6 +16,12 @@ SYMBOLS = ("○", "◐", "✓")
 APP_ID = "io.github.simpletodo.Desktop"
 ROW_HEIGHT = 44
 ROW_VERTICAL_MARGIN = 4
+
+
+def scaled_spacing(value, percent):
+    return round(value * percent / 100)
+
+
 APP_CSS = b"""
     headerbar.compact-titlebar {
         min-height: 36px;
@@ -82,33 +88,33 @@ class AddTask(GObject.Object):
 
 
 class AddTaskRow(Gtk.Box):
-    def __init__(self):
-        super().__init__(height_request=ROW_HEIGHT, hexpand=True)
+    def __init__(self, window):
+        super().__init__(hexpand=True)
         self.add_css_class("add-task-row")
         self.set_tooltip_text("Add a task")
         self.update_property([Gtk.AccessibleProperty.LABEL], ["Add a task"])
         self.append(Gtk.Label(label="+", hexpand=True))
+        self.apply_spacing(window.row_spacing_percent)
+
+    def apply_spacing(self, percent):
+        self.set_size_request(-1, scaled_spacing(ROW_HEIGHT, percent))
 
 
 class TaskRow(Gtk.Box):
     def __init__(self, window):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.add_css_class("task-row")
-        self.set_size_request(-1, ROW_HEIGHT - 2 * ROW_VERTICAL_MARGIN)
         self.window = window
         self.task = None
         self.handler = None
         self.loading = False
         self.details = None
-        margins(self, 8)
-        self.set_margin_top(ROW_VERTICAL_MARGIN)
-        self.set_margin_bottom(ROW_VERTICAL_MARGIN)
 
         header = Gtk.Box(spacing=8)
         self.append(header)
         self.drag_handle = Gtk.Label(label="⋮⋮")
         self.drag_handle.add_css_class("drag-handle")
-        self.drag_handle.set_size_request(28, ROW_HEIGHT - 2 * ROW_VERTICAL_MARGIN)
+        self.drag_handle.set_size_request(28, -1)
         self.drag_handle.set_tooltip_text("Drag to reorder task")
         self.drag_handle.update_property(
             [Gtk.AccessibleProperty.LABEL], ["Drag to reorder task"]
@@ -140,6 +146,17 @@ class TaskRow(Gtk.Box):
         self.drop_target.connect("leave", self.drag_leave)
         self.drop_target.connect("drop", self.drop_task)
         self.add_controller(self.drop_target)
+
+        self.apply_spacing(window.row_spacing_percent)
+
+    def apply_spacing(self, percent):
+        row_height = scaled_spacing(ROW_HEIGHT - 2 * ROW_VERTICAL_MARGIN, percent)
+        self.set_size_request(-1, row_height)
+        self.drag_handle.set_size_request(28, row_height)
+        self.set_margin_start(scaled_spacing(8, percent))
+        self.set_margin_end(scaled_spacing(8, percent))
+        self.set_margin_top(scaled_spacing(ROW_VERTICAL_MARGIN, percent))
+        self.set_margin_bottom(scaled_spacing(ROW_VERTICAL_MARGIN, percent))
 
     def prepare_drag(self, *_):
         if self.task is None:
@@ -322,6 +339,7 @@ class TodoWindow(Gtk.ApplicationWindow):
         )
         self.internal_theme = store.internal_theme()
         self.use_ubuntu_theme = store.ubuntu_theme_enabled()
+        self.row_spacing_percent = store.row_spacing_percent()
         self._applying_appearance = False
         self.model = Gio.ListStore.new(GObject.Object)
         self.model.splice(0, 0, [AddTask(), *[Task(record) for record in store.list_tasks()]])
@@ -358,6 +376,17 @@ class TodoWindow(Gtk.ApplicationWindow):
             "toggled", self.toggle_ubuntu_theme
         )
         settings_menu.append(self.ubuntu_theme_check)
+        settings_menu.append(Gtk.Label(label="Row spacing (%)", xalign=0))
+        self.row_spacing_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 60, 100, 1)
+        self.row_spacing_scale.set_digits(0)
+        self.row_spacing_scale.set_value_pos(Gtk.PositionType.RIGHT)
+        self.row_spacing_scale.set_hexpand(True)
+        self.row_spacing_scale.update_property(
+            [Gtk.AccessibleProperty.LABEL], ["Row spacing percentage"]
+        )
+        self.row_spacing_scale.set_value(self.row_spacing_percent)
+        self.row_spacing_scale.connect("value-changed", self.change_row_spacing)
+        settings_menu.append(self.row_spacing_scale)
         popover.set_child(settings_menu)
         self.settings_button.set_popover(popover)
         header.pack_end(self.settings_button)
@@ -417,7 +446,7 @@ class TodoWindow(Gtk.ApplicationWindow):
         child = item.get_child()
         if isinstance(model_item, AddTask):
             if not isinstance(child, AddTaskRow):
-                item.set_child(AddTaskRow())
+                item.set_child(AddTaskRow(self))
         else:
             if not isinstance(child, TaskRow):
                 child = TaskRow(self)
@@ -432,6 +461,28 @@ class TodoWindow(Gtk.ApplicationWindow):
         child = item.get_child()
         if isinstance(child, TaskRow):
             child.unbind()
+
+    def change_row_spacing(self, scale):
+        percent = round(scale.get_value())
+        if percent == self.row_spacing_percent:
+            return
+        try:
+            self.store.set_row_spacing_percent(percent)
+        except Exception as error:
+            scale.set_value(self.row_spacing_percent)
+            self.report_error(error)
+            return
+        self.row_spacing_percent = percent
+        self.apply_row_spacing(self.list)
+        self.update_message(clear_error=True)
+
+    def apply_row_spacing(self, widget):
+        if isinstance(widget, (AddTaskRow, TaskRow)):
+            widget.apply_spacing(self.row_spacing_percent)
+        child = widget.get_first_child()
+        while child is not None:
+            self.apply_row_spacing(child)
+            child = child.get_next_sibling()
 
     def icon_path(self, name):
         from pathlib import Path

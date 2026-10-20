@@ -156,6 +156,19 @@ class StorageTests(unittest.TestCase):
         with patch.dict(os.environ, {"XDG_DATA_HOME": "relative/path"}):
             self.assertEqual(database_path(), Path.home() / ".local/share/simple-todo/tasks.sqlite3")
 
+    def test_row_spacing_is_validated_and_survives_restart(self):
+        self.assertEqual(self.store.row_spacing_percent(), 100)
+        for invalid in (59, 101, 60.0, True, "80"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                self.store.set_row_spacing_percent(invalid)
+        for percent in (60, 80, 100):
+            self.store.set_row_spacing_percent(percent)
+            self.assertEqual(self.store.row_spacing_percent(), percent)
+        self.store.set_row_spacing_percent(60)
+        self.store.close()
+        self.store = Store(self.path)
+        self.assertEqual(self.store.row_spacing_percent(), 60)
+
 
 if __name__ == "__main__":
     unittest.main()
