@@ -57,9 +57,7 @@ class UiTests(unittest.TestCase):
         self.directory.cleanup()
 
     def add_task(self, title="Test task"):
-        add_row = next(w for w in descendants(self.window.list)
-                       if isinstance(w, AddTaskRow))
-        add_row.emit("clicked")
+        self.window.list.emit("activate", 0)
         pump()
         task = self.window.model.get_item(1)
         row = next(w for w in descendants(self.window.list)
@@ -101,7 +99,13 @@ class UiTests(unittest.TestCase):
         self.assertEqual(len(self.store.list_tasks()), 0)
         add_row = next(w for w in descendants(self.window.list)
                        if isinstance(w, AddTaskRow))
-        add_row.emit("clicked")
+        self.assertNotIsInstance(add_row, Gtk.Button)
+        self.assertFalse(any(isinstance(w, Gtk.Button) for w in descendants(add_row)))
+        self.assertTrue(self.window.list.get_single_click_activate())
+        self.assertTrue(add_row.get_parent().has_css_class("activatable"))
+        self.assertEqual(add_row.get_width(), add_row.get_parent().get_width())
+        self.assertEqual(add_row.get_height(), add_row.get_parent().get_height())
+        self.window.list.emit("activate", 0)
         pump()
         self.assertIsInstance(self.window.model.get_item(0), AddTask)
         task = self.window.model.get_item(1)
@@ -118,8 +122,9 @@ class UiTests(unittest.TestCase):
         self.assertEqual(self.store.list_tasks()[0]["title"], "Groceries")
         row.expand.emit("clicked")
         pump()
-        self.assertEqual(add_row.get_width(), row.get_width())
-        self.assertEqual(add_row.get_height(), row.get_height())
+        self.assertFalse(row.get_parent().has_css_class("activatable"))
+        self.window.list.emit("activate", 1)
+        self.assertEqual(self.window.model.get_n_items(), 2)
 
     def test_close_flushes_without_waiting_for_timer(self):
         task, row = self.add_task()

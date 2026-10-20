@@ -17,17 +17,19 @@ APP_ID = "io.github.simpletodo.Desktop"
 ROW_HEIGHT = 44
 ROW_VERTICAL_MARGIN = 4
 ADD_TASK_ROW_CSS = b"""
-    .add-task-row {
+    listview.todo-list > row.activatable {
         background-color: alpha(currentColor, 0.08);
         border: none;
         border-radius: 0;
         box-shadow: none;
         padding: 0;
         margin: 0;
-        font-size: 24px;
     }
-    .add-task-row:hover {
+    listview.todo-list > row.activatable:hover {
         background-color: alpha(currentColor, 0.14);
+    }
+    .add-task-row {
+        font-size: 24px;
     }
 """
 
@@ -56,33 +58,13 @@ class AddTask(GObject.Object):
     """The permanent first item in the virtualized list."""
 
 
-class AddTaskRow(Gtk.Button):
-    def __init__(self, window):
-        super().__init__(
-            label="+", height_request=ROW_HEIGHT - 2 * ROW_VERTICAL_MARGIN,
-            hexpand=True,
-        )
-        self.set_has_frame(False)
+class AddTaskRow(Gtk.Box):
+    def __init__(self):
+        super().__init__(height_request=ROW_HEIGHT, hexpand=True)
         self.add_css_class("add-task-row")
-        provider = Gtk.CssProvider()
-        provider.load_from_data(ADD_TASK_ROW_CSS)
-        self.get_style_context().add_provider(
-            provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-        )
         self.set_tooltip_text("Add a task")
         self.update_property([Gtk.AccessibleProperty.LABEL], ["Add a task"])
-        self.connect("clicked", window.add_task)
-
-
-class AddTaskItem(Gtk.Box):
-    """Give the add button the same outer spacing as a task row."""
-
-    def __init__(self, window):
-        super().__init__()
-        margins(self, 8)
-        self.set_margin_top(ROW_VERTICAL_MARGIN)
-        self.set_margin_bottom(ROW_VERTICAL_MARGIN)
-        self.append(AddTaskRow(window))
+        self.append(Gtk.Label(label="+", hexpand=True))
 
 
 class TaskRow(Gtk.Box):
@@ -330,7 +312,15 @@ class TodoWindow(Gtk.ApplicationWindow):
         factory.connect("bind", self.bind_list_item)
         factory.connect("unbind", self.unbind_list_item)
         self.list = Gtk.ListView(model=Gtk.NoSelection.new(self.model), factory=factory)
+        self.list.add_css_class("todo-list")
         self.list.set_show_separators(True)
+        self.list.set_single_click_activate(True)
+        self.list.connect("activate", self.activate_list_item)
+        provider = Gtk.CssProvider()
+        provider.load_from_data(ADD_TASK_ROW_CSS)
+        Gtk.StyleContext.add_provider_for_display(
+            self.get_display(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
         self.scroll = Gtk.ScrolledWindow(vexpand=True, has_frame=True)
         self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.scroll.set_child(self.list)
@@ -347,18 +337,22 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.update_message()
 
     def bind_list_item(self, _, item):
-        item.set_activatable(False)
         item.set_selectable(False)
         model_item = item.get_item()
+        item.set_activatable(isinstance(model_item, AddTask))
         child = item.get_child()
         if isinstance(model_item, AddTask):
-            if not isinstance(child, AddTaskItem):
-                item.set_child(AddTaskItem(self))
+            if not isinstance(child, AddTaskRow):
+                item.set_child(AddTaskRow())
         else:
             if not isinstance(child, TaskRow):
                 child = TaskRow(self)
                 item.set_child(child)
             child.bind(model_item)
+
+    def activate_list_item(self, _, position):
+        if isinstance(self.model.get_item(position), AddTask):
+            self.add_task()
 
     def unbind_list_item(self, _, item):
         child = item.get_child()
