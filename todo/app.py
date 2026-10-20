@@ -37,20 +37,6 @@ APP_CSS = b"""
         padding: 0;
         margin: 0;
     }
-    listview.todo-list > row.activatable {
-        background-color: alpha(currentColor, 0.08);
-        border: none;
-        border-radius: 0;
-        box-shadow: none;
-        padding: 0;
-        margin: 0;
-    }
-    listview.todo-list > row.activatable:hover {
-        background-color: alpha(currentColor, 0.14);
-    }
-    .add-task-row {
-        font-size: 24px;
-    }
     .drag-dot {
         background-color: alpha(currentColor, 0.85);
         border-radius: 4px;
@@ -84,23 +70,6 @@ class Task(GObject.Object):
         self.body = None
         self.expanded = False
         self.focus_title = False
-
-
-class AddTask(GObject.Object):
-    """The permanent first item in the virtualized list."""
-
-
-class AddTaskRow(Gtk.Box):
-    def __init__(self, window):
-        super().__init__(hexpand=True)
-        self.add_css_class("add-task-row")
-        self.set_tooltip_text("Add a task")
-        self.update_property([Gtk.AccessibleProperty.LABEL], ["Add a task"])
-        self.append(Gtk.Label(label="+", hexpand=True))
-        self.apply_spacing(window.row_spacing_percent)
-
-    def apply_spacing(self, percent):
-        self.set_size_request(-1, scaled_spacing(ROW_HEIGHT, percent))
 
 
 class TaskRow(Gtk.Box):
@@ -351,12 +320,21 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.drag_handle_enabled = store.drag_handle_enabled()
         self._applying_appearance = False
         self.model = Gio.ListStore.new(GObject.Object)
-        self.model.splice(0, 0, [AddTask(), *[Task(record) for record in store.list_tasks()]])
+        self.model.splice(0, 0, [Task(record) for record in store.list_tasks()])
         self.connect("close-request", self.on_close)
 
         header = Gtk.HeaderBar()
         header.add_css_class("compact-titlebar")
         header.set_title_widget(Gtk.Box())
+        self.add_button = Gtk.Button()
+        self.add_button.add_css_class("flat")
+        self.add_button.set_child(self.icon("add.svg"))
+        self.add_button.set_tooltip_text("Add a task")
+        self.add_button.update_property(
+            [Gtk.AccessibleProperty.LABEL], ["Add a task"]
+        )
+        self.add_button.connect("clicked", self.add_task)
+        header.pack_start(self.add_button)
         self.theme_button = Gtk.Button()
         self.theme_button.add_css_class("flat")
         self.theme_button.set_child(self.icon("sun.svg"))
@@ -422,11 +400,8 @@ class TodoWindow(Gtk.ApplicationWindow):
         factory.connect("bind", self.bind_list_item)
         factory.connect("unbind", self.unbind_list_item)
         self.list = Gtk.ListView(model=Gtk.NoSelection.new(self.model), factory=factory)
-        self.list.add_css_class("todo-list")
         self.list.set_show_separators(True)
         self.list.set_margin_bottom(44)
-        self.list.set_single_click_activate(True)
-        self.list.connect("activate", self.activate_list_item)
         provider = Gtk.CssProvider()
         provider.load_from_data(APP_CSS)
         Gtk.StyleContext.add_provider_for_display(
@@ -456,21 +431,8 @@ class TodoWindow(Gtk.ApplicationWindow):
 
     def bind_list_item(self, _, item):
         item.set_selectable(False)
-        model_item = item.get_item()
-        item.set_activatable(isinstance(model_item, AddTask))
-        child = item.get_child()
-        if isinstance(model_item, AddTask):
-            if not isinstance(child, AddTaskRow):
-                item.set_child(AddTaskRow(self))
-        else:
-            if not isinstance(child, TaskRow):
-                child = TaskRow(self)
-                item.set_child(child)
-            child.bind(model_item)
-
-    def activate_list_item(self, _, position):
-        if isinstance(self.model.get_item(position), AddTask):
-            self.add_task()
+        item.set_activatable(False)
+        item.get_child().bind(item.get_item())
 
     def unbind_list_item(self, _, item):
         child = item.get_child()
@@ -492,7 +454,7 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.update_message(clear_error=True)
 
     def apply_row_spacing(self, widget):
-        if isinstance(widget, (AddTaskRow, TaskRow)):
+        if isinstance(widget, TaskRow):
             widget.apply_spacing(self.row_spacing_percent)
         child = widget.get_first_child()
         while child is not None:
@@ -617,7 +579,7 @@ class TodoWindow(Gtk.ApplicationWindow):
         task = Task(record)
         task.expanded = True
         task.focus_title = True
-        self.model.insert(1, task)
+        self.model.insert(0, task)
         self.update_message(clear_error=True)
 
     def move_task(self, source, target, *, after):
@@ -635,7 +597,7 @@ class TodoWindow(Gtk.ApplicationWindow):
         if not self.flush():
             return False
         try:
-            self.store.move(source.id, destination - 1)
+            self.store.move(source.id, destination)
         except Exception as error:
             self.report_error(error)
             return False
@@ -678,7 +640,7 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.retry.set_visible(bool(self.pending))
 
     def update_message(self, *, clear_error=False):
-        count = self.model.get_n_items() - 1
+        count = self.model.get_n_items()
         if clear_error and not self.pending:
             self.save_error = None
         if self.save_error is not None:
@@ -711,6 +673,8 @@ class TodoWindow(Gtk.ApplicationWindow):
             self.pending.pop(task.id, None)
             found, position = self.model.find(task)
             if found:
+                if self.model.get_n_items() == 1:
+                    self.add_button.grab_focus()
                 self.model.remove(position)
             self.update_message(clear_error=True)
 
