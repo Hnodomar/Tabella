@@ -50,7 +50,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk
 
-from todo.app import AddTask, AddTaskRow, Task, TaskRow, TodoWindow
+from todo.app import Task, TaskRow, TodoWindow
 from todo.storage import Store
 
 
@@ -102,9 +102,9 @@ class UiTests(unittest.TestCase):
         self.directory.cleanup()
 
     def add_task(self, title="Test task"):
-        self.window.list.emit("activate", 0)
+        self.window.add_button.emit("clicked")
         pump()
-        task = self.window.model.get_item(1)
+        task = self.window.model.get_item(0)
         row = next(w for w in descendants(self.window.list)
                    if isinstance(w, TaskRow) and w.task == task)
         row.title_entry.set_text(title)
@@ -148,9 +148,14 @@ class UiTests(unittest.TestCase):
         self.assertEqual(self.window.get_title(), "Simple Todo")
         self.assertGreater(header.get_height(), 0)
         self.assertLess(header.get_height(), 36)
-        for control in (self.window.theme_button, self.window.settings_button):
+        for control in (self.window.add_button, self.window.theme_button,
+                        self.window.settings_button):
             self.assertGreater(control.get_height(), 0)
             self.assertLessEqual(control.get_height(), header.get_height())
+        _, add_bounds = self.window.add_button.compute_bounds(header)
+        _, theme_bounds = self.window.theme_button.compute_bounds(header)
+        self.assertLess(add_bounds.get_x(), header.get_width() / 2)
+        self.assertGreater(theme_bounds.get_x(), header.get_width() / 2)
 
     def test_task_title_fills_expand_button_without_arrow(self):
         task, row = self.add_task("A task title that can use the whole row")
@@ -211,10 +216,7 @@ class UiTests(unittest.TestCase):
         self.assertIn("disk is full", self.window.message.get_text())
 
     def test_row_spacing_slider_updates_rows_and_persists(self):
-        add_row = next(w for w in descendants(self.window.list)
-                       if isinstance(w, AddTaskRow))
         self.assertEqual(self.window.row_spacing_scale.get_value(), 100)
-        self.assertEqual(add_row.get_size_request()[1], 44)
         task, row = self.add_task()
         self.assertEqual(row.get_margin_start(), 8)
         self.assertEqual(row.get_margin_top(), 4)
@@ -225,14 +227,12 @@ class UiTests(unittest.TestCase):
         self.window.row_spacing_scale.set_value(40)
         pump()
         self.assertEqual(self.store.row_spacing_percent(), 40)
-        self.assertEqual(add_row.get_size_request()[1], 18)
         self.assertEqual(row.get_margin_start(), 3)
         self.assertEqual(row.get_margin_end(), 3)
         self.assertEqual(row.get_margin_top(), 1)
         self.assertEqual(row.get_margin_bottom(), 1)
         self.assertEqual(row.get_size_request()[1], 14)
         self.assertEqual(row.drag_handle.get_size_request()[1], 14)
-        self.assertEqual(add_row.get_width(), add_row.get_parent().get_width())
         self.assertEqual(task.title, "Test task")
 
         self.window.destroy()
@@ -272,10 +272,9 @@ class UiTests(unittest.TestCase):
                                      row.drag_handle.get_height())
 
     def test_add_expand_edit_autosave_and_status_cycle(self):
-        self.assertEqual(self.window.model.get_n_items(), 1)
-        self.assertIsInstance(self.window.model.get_item(0), AddTask)
+        self.assertEqual(self.window.model.get_n_items(), 0)
         task, row = self.add_task()
-        self.assertEqual(self.window.model.get_n_items(), 2)
+        self.assertEqual(self.window.model.get_n_items(), 1)
         self.assertEqual(task.body, "")
         self.assertFalse(row.details.get_visible())
         row.expand.emit("clicked")
@@ -299,20 +298,15 @@ class UiTests(unittest.TestCase):
         self.assertEqual(self.store.body(task.id), "")
         self.assertFalse(self.window.pending)
 
-    def test_plus_row_creates_and_focuses_an_editable_task(self):
+    def test_titlebar_add_button_creates_and_focuses_an_editable_task(self):
         self.assertEqual(len(self.store.list_tasks()), 0)
-        add_row = next(w for w in descendants(self.window.list)
-                       if isinstance(w, AddTaskRow))
-        self.assertNotIsInstance(add_row, Gtk.Button)
-        self.assertFalse(any(isinstance(w, Gtk.Button) for w in descendants(add_row)))
-        self.assertTrue(self.window.list.get_single_click_activate())
-        self.assertTrue(add_row.get_parent().has_css_class("activatable"))
-        self.assertEqual(add_row.get_width(), add_row.get_parent().get_width())
-        self.assertEqual(add_row.get_height(), add_row.get_parent().get_height())
-        self.window.list.emit("activate", 0)
+        self.assertEqual(self.window.model.get_n_items(), 0)
+        self.assertIsInstance(self.window.add_button.get_child(), Gtk.Image)
+        self.assertTrue(self.window.icon_path("add.svg").is_file())
+        self.assertEqual(self.window.add_button.get_tooltip_text(), "Add a task")
+        self.window.add_button.emit("clicked")
         pump()
-        self.assertIsInstance(self.window.model.get_item(0), AddTask)
-        task = self.window.model.get_item(1)
+        task = self.window.model.get_item(0)
         row = next(w for w in descendants(self.window.list)
                    if isinstance(w, TaskRow) and w.task == task)
         self.assertTrue(task.expanded)
@@ -327,8 +321,7 @@ class UiTests(unittest.TestCase):
         row.expand.emit("clicked")
         pump()
         self.assertFalse(row.get_parent().has_css_class("activatable"))
-        self.window.list.emit("activate", 1)
-        self.assertEqual(self.window.model.get_n_items(), 2)
+        self.assertEqual(self.window.model.get_n_items(), 1)
 
     def test_dragging_rows_changes_and_saves_their_order(self):
         first, _ = self.add_task("First")
@@ -347,7 +340,7 @@ class UiTests(unittest.TestCase):
         self.assertTrue(target.has_css_class("drop-before"))
         self.assertTrue(target.drop_target.emit("drop", first, 1, 0))
         pump()
-        self.assertEqual([task.id for task in list(self.window.model)[1:]],
+        self.assertEqual([task.id for task in self.window.model],
                          [first.id, third.id, second.id])
         self.assertEqual([row["id"] for row in self.store.list_tasks()],
                          [first.id, third.id, second.id])
@@ -355,17 +348,17 @@ class UiTests(unittest.TestCase):
         target = row_for(second)
         self.assertTrue(target.drop_target.emit("drop", first, 1, target.get_height()))
         pump()
-        self.assertEqual([task.id for task in list(self.window.model)[1:]],
+        self.assertEqual([task.id for task in self.window.model],
                          [third.id, second.id, first.id])
-        self.assertFalse(self.window.move_task(AddTask(), second, after=False))
-        self.assertIsInstance(self.window.model.get_item(0), AddTask)
+        self.assertFalse(self.window.move_task(object(), second, after=False))
+        self.assertIs(self.window.model.get_item(0), third)
 
         self.window.destroy()
         pump()
         self.window = TodoWindow(self.application, self.store)
         self.window.present()
         pump()
-        self.assertEqual([task.id for task in list(self.window.model)[1:]],
+        self.assertEqual([task.id for task in self.window.model],
                          [third.id, second.id, first.id])
 
     def test_failed_reorder_keeps_the_visible_order_and_saves_drafts(self):
@@ -377,12 +370,12 @@ class UiTests(unittest.TestCase):
         first_row.body_buffer.set_text("Draft before moving")
         with patch.object(self.store, "move", side_effect=sqlite3.OperationalError("disk is full")):
             self.assertFalse(self.window.move_task(first, second, after=False))
-        self.assertEqual([task.id for task in list(self.window.model)[1:]],
+        self.assertEqual([task.id for task in self.window.model],
                          [second.id, first.id])
         self.assertEqual(self.store.body(first.id), "Draft before moving")
         self.assertIn("disk is full", self.window.message.get_text())
         self.assertTrue(self.window.move_task(first, second, after=False))
-        self.assertEqual([task.id for task in list(self.window.model)[1:]],
+        self.assertEqual([task.id for task in self.window.model],
                          [first.id, second.id])
 
     def test_close_flushes_without_waiting_for_timer(self):
@@ -443,9 +436,9 @@ class UiTests(unittest.TestCase):
             dialog.response(response)
             pump()
             self.assertEqual(self.window.model.get_n_items(),
-                             2 if response == Gtk.ResponseType.CANCEL else 1)
+                             1 if response == Gtk.ResponseType.CANCEL else 0)
         self.assertEqual(self.store.list_tasks(), [])
-        self.assertIsInstance(self.window.model.get_item(0), AddTask)
+        self.assertEqual(self.window.model.get_n_items(), 0)
 
     def test_large_list_reuses_widgets_and_keeps_bodies_unloaded(self):
         with self.store.db:
@@ -465,7 +458,7 @@ class UiTests(unittest.TestCase):
         self.assertTrue(all(task.body is None for task in self.window.model
                             if isinstance(task, Task)))
         if hasattr(self.window.list, "scroll_to"):
-            self.window.list.scroll_to(5000, Gtk.ListScrollFlags.NONE, None)
+            self.window.list.scroll_to(4999, Gtk.ListScrollFlags.NONE, None)
             pump(0.15)
             rows = [w for w in descendants(self.window.list) if isinstance(w, TaskRow)]
             self.assertLess(len(rows), 500)
