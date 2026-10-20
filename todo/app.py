@@ -16,7 +16,21 @@ SYMBOLS = ("○", "◐", "✓")
 APP_ID = "io.github.simpletodo.Desktop"
 ROW_HEIGHT = 44
 ROW_VERTICAL_MARGIN = 4
-ADD_TASK_ROW_CSS = b"""
+APP_CSS = b"""
+    headerbar.compact-titlebar {
+        min-height: 36px;
+        padding: 0;
+    }
+    headerbar.compact-titlebar button {
+        min-height: 0;
+        padding: 2px;
+        margin: 0;
+    }
+    headerbar.compact-titlebar menubutton {
+        min-height: 0;
+        padding: 0;
+        margin: 0;
+    }
     listview.todo-list > row.activatable {
         background-color: alpha(currentColor, 0.08);
         border: none;
@@ -263,6 +277,7 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.connect("close-request", self.on_close)
 
         header = Gtk.HeaderBar()
+        header.add_css_class("compact-titlebar")
         header.set_title_widget(Gtk.Label(label="Simple Todo"))
         self.theme_button = Gtk.Button()
         self.theme_button.add_css_class("flat")
@@ -317,7 +332,7 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.list.set_single_click_activate(True)
         self.list.connect("activate", self.activate_list_item)
         provider = Gtk.CssProvider()
-        provider.load_from_data(ADD_TASK_ROW_CSS)
+        provider.load_from_data(APP_CSS)
         Gtk.StyleContext.add_provider_for_display(
             self.get_display(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )

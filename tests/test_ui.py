@@ -67,6 +67,16 @@ class UiTests(unittest.TestCase):
         row.expand.emit("clicked")
         return task, row
 
+    def test_titlebar_is_compact_and_controls_fit(self):
+        header = self.window.get_titlebar()
+        self.assertTrue(header.has_css_class("compact-titlebar"))
+        self.assertEqual(header.get_title_widget().get_text(), "Simple Todo")
+        self.assertGreater(header.get_height(), 0)
+        self.assertLessEqual(header.get_height(), 40)
+        for control in (self.window.theme_button, self.window.settings_button):
+            self.assertGreater(control.get_height(), 0)
+            self.assertLessEqual(control.get_height(), header.get_height())
+
     def test_add_expand_edit_autosave_and_status_cycle(self):
         self.assertEqual(self.window.model.get_n_items(), 1)
         self.assertIsInstance(self.window.model.get_item(0), AddTask)
