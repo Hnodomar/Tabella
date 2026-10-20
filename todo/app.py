@@ -319,7 +319,7 @@ class TodoWindow(Gtk.ApplicationWindow):
             "notify::gtk-theme-name", self.on_system_theme_name_changed
         )
         self.apply_appearance()
-        root = margins(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), 16)
+        root = Gtk.Overlay()
         self.set_child(root)
 
         factory = Gtk.SignalListItemFactory()
@@ -329,6 +329,7 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.list = Gtk.ListView(model=Gtk.NoSelection.new(self.model), factory=factory)
         self.list.add_css_class("todo-list")
         self.list.set_show_separators(True)
+        self.list.set_margin_bottom(44)
         self.list.set_single_click_activate(True)
         self.list.connect("activate", self.activate_list_item)
         provider = Gtk.CssProvider()
@@ -336,19 +337,26 @@ class TodoWindow(Gtk.ApplicationWindow):
         Gtk.StyleContext.add_provider_for_display(
             self.get_display(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
-        self.scroll = Gtk.ScrolledWindow(vexpand=True, has_frame=True)
+        self.scroll = Gtk.ScrolledWindow(vexpand=True, has_frame=False)
         self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.scroll.set_child(self.list)
-        root.append(self.scroll)
+        root.set_child(self.scroll)
 
         footer = Gtk.Box(spacing=8)
+        footer.add_css_class("view")
+        footer.set_halign(Gtk.Align.FILL)
+        footer.set_valign(Gtk.Align.END)
         self.message = Gtk.Label(xalign=0, hexpand=True, wrap=True, selectable=True)
         self.message.add_css_class("dim-label")
+        self.message.set_margin_start(8)
+        self.message.set_margin_top(4)
+        self.message.set_margin_bottom(4)
         footer.append(self.message)
         self.retry = Gtk.Button(label="Retry save", visible=False)
+        self.retry.set_margin_end(8)
         self.retry.connect("clicked", lambda *_: self.flush())
         footer.append(self.retry)
-        root.append(footer)
+        root.add_overlay(footer)
         self.update_message()
 
     def bind_list_item(self, _, item):

@@ -67,6 +67,34 @@ class UiTests(unittest.TestCase):
         row.expand.emit("clicked")
         return task, row
 
+    def test_list_fills_window_and_status_occupies_bottom_edge(self):
+        root = self.window.get_child()
+        self.assertEqual(root.get_width(), self.window.get_width())
+        # The native window border may consume one pixel below the content.
+        self.assertIn(
+            self.window.get_height()
+            - root.get_height()
+            - self.window.get_titlebar().get_height(),
+            (0, 1),
+        )
+        self.assertFalse(self.window.scroll.get_has_frame())
+
+        _, list_bounds = self.window.scroll.compute_bounds(root)
+        self.assertEqual(list_bounds.get_x(), 0)
+        self.assertEqual(list_bounds.get_y(), 0)
+        self.assertEqual(list_bounds.get_width(), root.get_width())
+        self.assertEqual(list_bounds.get_height(), root.get_height())
+
+        status_bar = self.window.message.get_parent()
+        _, status_bounds = status_bar.compute_bounds(root)
+        self.assertEqual(status_bounds.get_x(), 0)
+        self.assertGreater(status_bounds.get_y(), 0)
+        self.assertEqual(status_bounds.get_y() + status_bounds.get_height(), root.get_height())
+        self.assertEqual(status_bounds.get_width(), root.get_width())
+        self.assertGreaterEqual(self.window.list.get_margin_bottom(), status_bounds.get_height())
+        _, message_bounds = self.window.message.compute_bounds(root)
+        self.assertLessEqual(message_bounds.get_x(), 8)
+
     def test_titlebar_is_compact_and_controls_fit(self):
         header = self.window.get_titlebar()
         self.assertTrue(header.has_css_class("compact-titlebar"))
