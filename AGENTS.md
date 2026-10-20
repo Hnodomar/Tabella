@@ -28,3 +28,4 @@ This project implements a to-do app that runs natively on Ubuntu Desktop.
 - If a test fails to pass, always ask for approval before editing it with a brief description of why the test needs to change.
 - Report the commands run and their outcomes.
 - Clearly identify anything that could not be verified.
+- When changing UI elements or behavior, end the final response with one line telling the user how to launch the app (for example, `make run`), what to do, and what result to expect.
