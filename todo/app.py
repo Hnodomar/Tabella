@@ -48,6 +48,13 @@ APP_CSS = b"""
         min-width: 4px;
         min-height: 4px;
     }
+    .task-row-header:hover {
+        background-color: alpha(currentColor, 0.08);
+    }
+    .task-row-header button.flat:hover {
+        background-color: transparent;
+        box-shadow: none;
+    }
     .task-row.drop-before {
         box-shadow: inset 0 2px currentColor;
     }
@@ -107,8 +114,12 @@ class TaskRow(Gtk.Box):
         self.loading = False
         self.details = None
 
+        self.header = Gtk.Box()
+        self.header.add_css_class("task-row-header")
+        self.append(self.header)
         header = Gtk.Box(spacing=4)
-        self.append(header)
+        self.header.append(header)
+        self.header_content = header
         self.expand = Gtk.Button(hexpand=True)
         self.expand.add_css_class("flat")
         self.title = Gtk.Label(xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END)
@@ -156,10 +167,16 @@ class TaskRow(Gtk.Box):
         self.set_size_request(-1, row_height)
         self.drag_slot.set_size_request(20, row_height)
         self.drag_handle.set_size_request(20, row_height)
-        self.set_margin_start(scaled_spacing(8, percent))
-        self.set_margin_end(scaled_spacing(8, percent))
-        self.set_margin_top(ROW_VERTICAL_MARGIN * percent // 100)
-        self.set_margin_bottom(ROW_VERTICAL_MARGIN * percent // 100)
+        horizontal_margin = scaled_spacing(8, percent)
+        vertical_margin = ROW_VERTICAL_MARGIN * percent // 100
+        self.header_content.set_margin_start(horizontal_margin)
+        self.header_content.set_margin_end(horizontal_margin)
+        self.header_content.set_margin_top(vertical_margin)
+        self.header_content.set_margin_bottom(vertical_margin)
+        if self.details is not None:
+            self.details.set_margin_start(32 + horizontal_margin)
+            self.details.set_margin_end(62 + horizontal_margin)
+            self.details.set_margin_bottom(4 + vertical_margin)
 
     def prepare_drag(self, *_):
         if self.task is None:
@@ -251,10 +268,8 @@ class TaskRow(Gtk.Box):
 
     def build_details(self):
         self.details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        self.details.set_margin_start(32)
-        self.details.set_margin_end(62)
-        self.details.set_margin_bottom(4)
         self.append(self.details)
+        self.apply_spacing(self.window.row_spacing_percent)
         created = datetime.fromisoformat(self.task.created_at).astimezone()
         date = Gtk.Label(label=created.strftime("Created %d %b %Y at %H:%M:%S %Z"), xalign=0)
         date.add_css_class("dim-label")

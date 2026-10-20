@@ -176,6 +176,23 @@ class UiTests(unittest.TestCase):
         self.assertTrue(task.expanded)
         self.assertIs(row.expand.get_child(), row.title)
 
+    def test_hover_header_spans_row_but_stays_collapsed_height_when_expanded(self):
+        _, row = self.add_task()
+        self.assertTrue(row.header.has_css_class("task-row-header"))
+        collapsed_height = row.header.get_height()
+        self.assertGreater(collapsed_height, 0)
+        self.assertEqual(row.header.get_width(), row.get_width())
+        self.assertEqual(row.header.get_width(), self.window.list.get_width())
+
+        row.expand.emit("clicked")
+        pump()
+        self.assertEqual(row.header.get_height(), collapsed_height)
+        self.assertEqual(row.header.get_width(), row.get_width())
+        self.assertGreater(row.get_height(), row.header.get_height())
+        _, header_bounds = row.header.compute_bounds(row)
+        self.assertEqual(header_bounds.get_x(), 0)
+        self.assertEqual(header_bounds.get_y(), 0)
+
     def test_drag_handle_toggle_keeps_title_and_status_in_place(self):
         _, row = self.add_task("A task with a stable title")
         pump()
@@ -229,8 +246,8 @@ class UiTests(unittest.TestCase):
     def test_row_spacing_slider_updates_rows_and_persists(self):
         self.assertEqual(self.window.row_spacing_scale.get_value(), 100)
         task, row = self.add_task()
-        self.assertEqual(row.get_margin_start(), 8)
-        self.assertEqual(row.get_margin_top(), 4)
+        self.assertEqual(row.header_content.get_margin_start(), 8)
+        self.assertEqual(row.header_content.get_margin_top(), 4)
         self.assertEqual(row.get_size_request()[1], 36)
         self.assertEqual(row.drag_handle.get_size_request()[1], 36)
 
@@ -238,10 +255,10 @@ class UiTests(unittest.TestCase):
         self.window.row_spacing_scale.set_value(40)
         pump()
         self.assertEqual(self.store.row_spacing_percent(), 40)
-        self.assertEqual(row.get_margin_start(), 3)
-        self.assertEqual(row.get_margin_end(), 3)
-        self.assertEqual(row.get_margin_top(), 1)
-        self.assertEqual(row.get_margin_bottom(), 1)
+        self.assertEqual(row.header_content.get_margin_start(), 3)
+        self.assertEqual(row.header_content.get_margin_end(), 3)
+        self.assertEqual(row.header_content.get_margin_top(), 1)
+        self.assertEqual(row.header_content.get_margin_bottom(), 1)
         self.assertEqual(row.get_size_request()[1], 14)
         self.assertEqual(row.drag_handle.get_size_request()[1], 14)
         self.assertEqual(task.title, "Test task")
@@ -254,11 +271,11 @@ class UiTests(unittest.TestCase):
         self.assertEqual(self.window.row_spacing_scale.get_value(), 40)
         restored_row = next(w for w in descendants(self.window.list)
                             if isinstance(w, TaskRow) and w.task is not None)
-        self.assertEqual(restored_row.get_margin_start(), 3)
+        self.assertEqual(restored_row.header_content.get_margin_start(), 3)
         self.assertEqual(restored_row.drag_handle.get_size_request()[1], 14)
         self.window.row_spacing_scale.set_value(100)
         self.assertEqual(self.store.row_spacing_percent(), 100)
-        self.assertEqual(restored_row.get_margin_start(), 8)
+        self.assertEqual(restored_row.header_content.get_margin_start(), 8)
         self.assertEqual(restored_row.drag_handle.get_size_request()[1], 36)
 
     def test_drag_handle_dots_remain_visible_at_compact_spacing(self):
