@@ -43,3 +43,24 @@ your desktop. Run them with `make test-ui`; Xephyr creates a visible window and
 should not be used for test runs.
 
 Tests use temporary databases and do not modify your task list.
+
+## Docker development and tests
+
+Build a development image with the app, GTK 4, system Python, Git, Make, and
+Xvfb. The Dockerfile pins the Ubuntu base image by digest and uses a dated
+Ubuntu package snapshot, so rebuilding it installs the same dependency versions.
+
+```sh
+docker build -t simple-todo-dev .
+docker run --rm simple-todo-dev                # storage and headless GTK tests
+docker run --rm simple-todo-dev make test     # storage tests only
+```
+
+To test edits without rebuilding the image, mount the working tree:
+
+```sh
+docker run --rm -v "$PWD":/workspace simple-todo-dev
+```
+
+The container uses Xvfb for UI tests. To launch the desktop app itself, use
+`make run` on Ubuntu as described above.
