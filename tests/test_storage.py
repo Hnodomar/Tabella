@@ -45,6 +45,79 @@ class StorageTests(unittest.TestCase):
         with self.assertRaises(LookupError):
             self.store.body(first["id"])
 
+    def test_reorder_persists_and_new_tasks_start_on_top(self):
+        first = self.store.add("First")
+        second = self.store.add("Second")
+        third = self.store.add("Third")
+        self.store.move(first["id"], 0)
+        self.assertEqual(
+            [row["id"] for row in self.store.list_tasks()],
+            [first["id"], third["id"], second["id"]],
+        )
+        self.store.close()
+        self.store = Store(self.path)
+        self.assertEqual(
+            [row["id"] for row in self.store.list_tasks()],
+            [first["id"], third["id"], second["id"]],
+        )
+        fourth = self.store.add("Fourth")
+        self.store.move(fourth["id"], 3)
+        self.assertEqual(
+            [row["id"] for row in self.store.list_tasks()],
+            [first["id"], third["id"], second["id"], fourth["id"]],
+        )
+
+    def test_reorder_rejects_invalid_moves_and_rolls_back_on_failure(self):
+        first = self.store.add("First")
+        second = self.store.add("Second")
+        third = self.store.add("Third")
+        original = [row["id"] for row in self.store.list_tasks()]
+        for task_id, position, error in (
+            (999, 0, LookupError), (first["id"], -1, ValueError),
+            (first["id"], 3, ValueError), (first["id"], True, ValueError),
+        ):
+            with self.subTest(task_id=task_id, position=position), self.assertRaises(error):
+                self.store.move(task_id, position)
+        self.store.db.execute(f"""
+            CREATE TEMP TRIGGER block_reorder BEFORE UPDATE OF sort_order ON tasks
+            WHEN NEW.id = {second['id']}
+            BEGIN SELECT RAISE(ABORT, 'blocked'); END
+        """)
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.store.move(first["id"], 0)
+        self.assertEqual([row["id"] for row in self.store.list_tasks()], original)
+        self.store.db.execute("DROP TRIGGER block_reorder")
+        self.store.move(first["id"], 0)
+        self.assertEqual(
+            [row["id"] for row in self.store.list_tasks()],
+            [first["id"], third["id"], second["id"]],
+        )
+
+    def test_existing_database_migrates_without_changing_task_order(self):
+        old_path = Path(self.directory.name) / "old.sqlite3"
+        with sqlite3.connect(old_path) as db:
+            db.execute("""
+                CREATE TABLE tasks (
+                    id INTEGER PRIMARY KEY, title TEXT NOT NULL, status INTEGER NOT NULL,
+                    created_at TEXT NOT NULL, body TEXT NOT NULL DEFAULT ''
+                )
+            """)
+            db.executemany(
+                "INSERT INTO tasks (id, title, status, created_at, body) VALUES (?, ?, 0, ?, ?)",
+                ((2, "Older", "2026-01-01T00:00:00+00:00", "Old note"),
+                 (7, "Newer", "2026-01-02T00:00:00+00:00", "New note")),
+            )
+            db.execute("PRAGMA user_version = 1")
+        old_store = Store(old_path)
+        try:
+            self.assertEqual([row["id"] for row in old_store.list_tasks()], [7, 2])
+            self.assertEqual(old_store.body(2), "Old note")
+            self.assertEqual(old_store.db.execute("PRAGMA user_version").fetchone()[0], 2)
+            old_store.move(2, 0)
+            self.assertEqual([row["id"] for row in old_store.list_tasks()], [2, 7])
+        finally:
+            old_store.close()
+
     def test_empty_notes_and_invalid_edits(self):
         task = self.store.add("Task")
         self.assertEqual(self.store.body(task["id"]), "")
@@ -72,10 +145,10 @@ class StorageTests(unittest.TestCase):
             self.store.update(999, title="Missing")
 
     def test_future_database_version_is_rejected(self):
-        self.store.db.execute("PRAGMA user_version = 2")
+        self.store.db.execute("PRAGMA user_version = 3")
         with self.assertRaises(RuntimeError):
             Store(self.path)
-        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 2)
+        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 3)
 
     def test_data_directory_respects_xdg(self):
         with patch.dict(os.environ, {"XDG_DATA_HOME": self.directory.name}):

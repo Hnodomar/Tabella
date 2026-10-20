@@ -25,7 +25,7 @@ class Store:
             self.db.execute("PRAGMA journal_mode = WAL")
             self.db.execute("PRAGMA synchronous = FULL")
             version = self.db.execute("PRAGMA user_version").fetchone()[0]
-            if version > 1:
+            if version > 2:
                 raise RuntimeError("This task database was created by a newer version of the app.")
             with self.db:
                 self.db.execute("""
@@ -84,7 +84,15 @@ class Store:
                         "INSERT INTO preferences (key, value) VALUES ('ubuntu_theme', ?)",
                         ('1' if use_ubuntu else '0',),
                     )
-                self.db.execute("PRAGMA user_version = 1")
+                if version < 2:
+                    self.db.execute(
+                        "ALTER TABLE tasks ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+                    )
+                    self.db.execute("UPDATE tasks SET sort_order = -id")
+                    self.db.execute("PRAGMA user_version = 2")
+                self.db.execute(
+                    "CREATE INDEX IF NOT EXISTS tasks_sort_order_idx ON tasks(sort_order, id DESC)"
+                )
         except Exception:
             self.db.close()
             raise
@@ -92,7 +100,7 @@ class Store:
     def list_tasks(self):
         # Bodies may be large; read them only when a row is expanded.
         return self.db.execute(
-            "SELECT id, title, status, created_at FROM tasks ORDER BY id DESC"
+            "SELECT id, title, status, created_at FROM tasks ORDER BY sort_order, id DESC"
         ).fetchall()
 
     def body(self, task_id):
@@ -130,9 +138,35 @@ class Store:
         created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with self.db:
             cursor = self.db.execute(
-                "INSERT INTO tasks (title, created_at) VALUES (?, ?)", (title, created_at)
+                "INSERT INTO tasks (title, created_at, sort_order) "
+                "VALUES (?, ?, COALESCE((SELECT MIN(sort_order) - 1 FROM tasks), 0))",
+                (title, created_at),
             )
         return dict(id=cursor.lastrowid, title=title, status=0, created_at=created_at)
+
+    def move(self, task_id, position):
+        """Move a task to a zero-based position in the saved task list."""
+        rows = self.db.execute(
+            "SELECT id, sort_order FROM tasks ORDER BY sort_order, id DESC"
+        ).fetchall()
+        ids = [row["id"] for row in rows]
+        if type(position) is not int or not 0 <= position < len(ids):
+            raise ValueError("Invalid task position.")
+        try:
+            old_position = ids.index(task_id)
+        except ValueError as error:
+            raise LookupError("Task no longer exists.") from error
+        if old_position == position:
+            return
+        ids.pop(old_position)
+        ids.insert(position, task_id)
+        first, last = sorted((old_position, position))
+        with self.db:
+            self.db.executemany(
+                "UPDATE tasks SET sort_order = ? WHERE id = ?",
+                ((rows[index]["sort_order"], ids[index])
+                 for index in range(first, last + 1)),
+            )
 
     def update(self, task_id, **fields):
         if not fields or fields.keys() - {"title", "body", "status"}:
