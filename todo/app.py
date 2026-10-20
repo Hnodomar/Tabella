@@ -24,7 +24,7 @@ def scaled_spacing(value, percent):
 
 APP_CSS = b"""
     headerbar.compact-titlebar {
-        min-height: 36px;
+        min-height: 28px;
         padding: 0;
     }
     headerbar.compact-titlebar button {
@@ -342,7 +342,7 @@ class TodoWindow(Gtk.ApplicationWindow):
 
         header = Gtk.HeaderBar()
         header.add_css_class("compact-titlebar")
-        header.set_title_widget(Gtk.Label(label="Simple Todo"))
+        header.set_title_widget(Gtk.Box())
         self.theme_button = Gtk.Button()
         self.theme_button.add_css_class("flat")
         self.theme_button.set_child(self.icon("sun.svg"))

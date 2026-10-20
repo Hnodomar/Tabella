@@ -143,9 +143,11 @@ class UiTests(unittest.TestCase):
     def test_titlebar_is_compact_and_controls_fit(self):
         header = self.window.get_titlebar()
         self.assertTrue(header.has_css_class("compact-titlebar"))
-        self.assertEqual(header.get_title_widget().get_text(), "Simple Todo")
+        self.assertIsInstance(header.get_title_widget(), Gtk.Box)
+        self.assertIsNone(header.get_title_widget().get_first_child())
+        self.assertEqual(self.window.get_title(), "Simple Todo")
         self.assertGreater(header.get_height(), 0)
-        self.assertLessEqual(header.get_height(), 40)
+        self.assertLess(header.get_height(), 36)
         for control in (self.window.theme_button, self.window.settings_button):
             self.assertGreater(control.get_height(), 0)
             self.assertLessEqual(control.get_height(), header.get_height())
