@@ -1,19 +1,61 @@
 """Exercise actual GTK widgets against isolated, on-disk SQLite databases."""
 
+import atexit
+from contextlib import ExitStack
+import os
 from pathlib import Path
+import select
+import shutil
 import sqlite3
+import subprocess
 import tempfile
 import time
 import unittest
 from unittest.mock import patch
 
+
+_display_resources = ExitStack()
+atexit.register(_display_resources.close)
+if shutil.which("Xvfb") is None:
+    raise RuntimeError("UI tests require Xvfb (install the Ubuntu xvfb package)")
+_xvfb = subprocess.Popen(
+    ["Xvfb", "-displayfd", "1", "-screen", "0", "1280x1024x24", "-nolisten", "tcp"],
+    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+)
+
+
+def stop_xvfb():
+    if _xvfb.poll() is None:
+        _xvfb.terminate()
+    try:
+        _xvfb.communicate(timeout=2)
+    except subprocess.TimeoutExpired:
+        _xvfb.kill()
+        _xvfb.communicate()
+
+
+_display_resources.callback(stop_xvfb)
+if not select.select([_xvfb.stdout], [], [], 5)[0]:
+    raise RuntimeError("Timed out waiting for Xvfb to start")
+_display_number = _xvfb.stdout.readline().decode().strip()
+if not _display_number.isdecimal():
+    raise RuntimeError("Xvfb failed to provide a display number")
+_display_resources.enter_context(patch.dict(os.environ, {
+    "GDK_BACKEND": "x11", "DISPLAY": f":{_display_number}",
+}))
+
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gio, GLib, Gtk
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gdk, Gio, GLib, Gtk
 
 from todo.app import AddTask, AddTaskRow, Task, TaskRow, TodoWindow
 from todo.storage import Store
+
+
+def tearDownModule():
+    _display_resources.close()
 
 
 def pump(seconds=0.04):
@@ -33,10 +75,13 @@ def descendants(widget):
         child = child.get_next_sibling()
 
 
-@unittest.skipUnless(Gtk.init_check(), "A graphical display is required")
 class UiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        display_ready = Gtk.init_check()
+        display = Gdk.Display.get_default()
+        if not display_ready or display is None or display.__gtype__.name != "GdkX11Display":
+            raise RuntimeError("Could not initialize GTK on the virtual X display")
         cls.application = Gtk.Application(
             application_id="io.github.simpletodo.Test", flags=Gio.ApplicationFlags.NON_UNIQUE
         )
