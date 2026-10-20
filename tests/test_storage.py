@@ -158,16 +158,16 @@ class StorageTests(unittest.TestCase):
 
     def test_row_spacing_is_validated_and_survives_restart(self):
         self.assertEqual(self.store.row_spacing_percent(), 100)
-        for invalid in (59, 101, 60.0, True, "80"):
+        for invalid in (39, 101, 40.0, True, "80"):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 self.store.set_row_spacing_percent(invalid)
-        for percent in (60, 80, 100):
+        for percent in (40, 60, 80, 100):
             self.store.set_row_spacing_percent(percent)
             self.assertEqual(self.store.row_spacing_percent(), percent)
-        self.store.set_row_spacing_percent(60)
+        self.store.set_row_spacing_percent(40)
         self.store.close()
         self.store = Store(self.path)
-        self.assertEqual(self.store.row_spacing_percent(), 60)
+        self.assertEqual(self.store.row_spacing_percent(), 40)
 
 
 if __name__ == "__main__":
