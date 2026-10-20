@@ -127,12 +127,8 @@ class TaskRow(Gtk.Box):
         header.append(self.drag_handle)
         self.expand = Gtk.Button(hexpand=True)
         self.expand.add_css_class("flat")
-        caption = Gtk.Box(spacing=10)
-        self.arrow = Gtk.Label(label="▸")
         self.title = Gtk.Label(xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END)
-        caption.append(self.arrow)
-        caption.append(self.title)
-        self.expand.set_child(caption)
+        self.expand.set_child(self.title)
         self.expand.connect("clicked", self.toggle_expanded)
         header.append(self.expand)
         self.status = Gtk.Button(width_request=54)
@@ -205,7 +201,6 @@ class TaskRow(Gtk.Box):
 
     def refresh_header(self, *_):
         self.title.set_text(self.task.title)
-        self.arrow.set_text("▾" if self.task.expanded else "▸")
         self.expand.set_tooltip_text(
             f"{'Collapse' if self.task.expanded else 'Expand'}: {self.task.title}"
         )

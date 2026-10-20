@@ -150,6 +150,14 @@ class UiTests(unittest.TestCase):
             self.assertGreater(control.get_height(), 0)
             self.assertLessEqual(control.get_height(), header.get_height())
 
+    def test_task_title_fills_expand_button_without_arrow(self):
+        task, row = self.add_task("A task title that can use the whole row")
+        self.assertIs(row.expand.get_child(), row.title)
+        self.assertEqual(row.title.get_text(), task.title)
+        row.expand.emit("clicked")
+        self.assertTrue(task.expanded)
+        self.assertIs(row.expand.get_child(), row.title)
+
     def test_row_spacing_slider_updates_rows_and_persists(self):
         add_row = next(w for w in descendants(self.window.list)
                        if isinstance(w, AddTaskRow))
