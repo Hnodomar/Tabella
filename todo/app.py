@@ -43,6 +43,10 @@ APP_CSS = b"""
         border: none;
         box-shadow: none;
     }
+    headerbar.compact-titlebar .group-control > button:hover,
+    headerbar.compact-titlebar .group-control > menubutton > button:hover {
+        background: alpha(currentColor, 0.08);
+    }
     listview.todo-list > row {
         padding: 0;
         margin: 0;
@@ -406,7 +410,7 @@ class TodoWindow(Gtk.ApplicationWindow):
         )
         self.add_button.connect("clicked", self.add_task)
         header.pack_start(self.add_button)
-        group_control = Gtk.Box()
+        group_control = Gtk.Box(spacing=6)
         group_control.add_css_class("group-control")
         self.group_button = Gtk.MenuButton()
         self.group_button.set_has_frame(False)
