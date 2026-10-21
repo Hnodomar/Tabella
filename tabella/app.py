@@ -13,7 +13,7 @@ from .storage import STATUSES, Store
 
 
 SYMBOLS = ("○", "◐", "✓")
-APP_ID = "io.github.simpletodo.Desktop"
+APP_ID = "io.github.hnodomar.Tabella"
 ROW_HEIGHT = 44
 ROW_VERTICAL_MARGIN = 4
 
@@ -47,7 +47,7 @@ APP_CSS = b"""
     headerbar.compact-titlebar .group-control > menubutton > button:hover {
         background: alpha(currentColor, 0.08);
     }
-    listview.todo-list > row {
+    listview.tabella-list > row {
         padding: 0;
         margin: 0;
         border: 0;
@@ -369,9 +369,9 @@ class TaskRow(Gtk.Box):
         self.window.update_message(clear_error=True)
 
 
-class TodoWindow(Gtk.ApplicationWindow):
+class TabellaWindow(Gtk.ApplicationWindow):
     def __init__(self, application, store):
-        super().__init__(application=application, title="Simple Todo", default_width=640, default_height=650)
+        super().__init__(application=application, title="Tabella", default_width=640, default_height=650)
         self.store = store
         self.pending = {}
         self.save_source = 0
@@ -513,7 +513,7 @@ class TodoWindow(Gtk.ApplicationWindow):
         factory.connect("bind", self.bind_list_item)
         factory.connect("unbind", self.unbind_list_item)
         self.list = Gtk.ListView(model=Gtk.NoSelection.new(self.list_model), factory=factory)
-        self.list.add_css_class("todo-list")
+        self.list.add_css_class("tabella-list")
         self.list.set_show_separators(True)
         provider = Gtk.CssProvider()
         provider.load_from_data(APP_CSS)
@@ -830,7 +830,7 @@ class TodoWindow(Gtk.ApplicationWindow):
             "Export backup", self, Gtk.FileChooserAction.SAVE, "Export", "Cancel"
         )
         chooser.set_modal(True)
-        chooser.set_current_name("simple-todo-backup.sqlite3")
+        chooser.set_current_name("Tabella-backup.sqlite3")
         chooser.connect("response", self.finish_export)
         self.export_chooser = chooser
         chooser.show()
@@ -908,7 +908,7 @@ class TodoWindow(Gtk.ApplicationWindow):
         return not self.flush()
 
 
-class TodoApplication(Gtk.Application):
+class TabellaApplication(Gtk.Application):
     def __init__(self):
         # Gio routes subsequent launches to the existing process.
         super().__init__(application_id=APP_ID)
@@ -920,13 +920,13 @@ class TodoApplication(Gtk.Application):
         if window is None:
             try:
                 self.store = Store()
-                window = TodoWindow(self, self.store)
+                window = TabellaWindow(self, self.store)
             except Exception as error:
                 self.exit_status = 1
-                print(f"Unable to open Simple Todo: {error}", file=sys.stderr)
+                print(f"Unable to open Tabella: {error}", file=sys.stderr)
                 dialog = Gtk.MessageDialog(
                     application=self, modal=True, message_type=Gtk.MessageType.ERROR,
-                    buttons=Gtk.ButtonsType.CLOSE, text="Unable to open Simple Todo",
+                    buttons=Gtk.ButtonsType.CLOSE, text="Unable to open Tabella",
                 )
                 dialog.set_property("secondary-text", str(error))
                 dialog.connect("response", lambda *_: self.quit())
@@ -953,6 +953,6 @@ class TodoApplication(Gtk.Application):
 
 
 def main():
-    application = TodoApplication()
+    application = TabellaApplication()
     result = application.run(sys.argv)
     return result or application.exit_status

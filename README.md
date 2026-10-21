@@ -1,6 +1,6 @@
-# Simple Todo
+# Tabella
 
-A lightweight native Ubuntu desktop TODO app using GTK 4, system Python, and
+A lightweight native Ubuntu desktop task list using GTK 4, system Python, and
 SQLite. No pip dependencies, browser runtime, server, or network connection.
 
 ## Run
@@ -14,10 +14,10 @@ sudo apt install python3 python3-gi gir1.2-gtk-4.0
 From this repository:
 
 ```sh
-./simple-todo
+./Tabella
 ```
 
-Use `/usr/bin/python3 -m todo` or `make run` as alternatives. Use the system
+Use `/usr/bin/python3 -m tabella` or `make run` as alternatives. Use the system
 Python; a virtual environment may not include Ubuntu's GTK bindings.
 
 Optional installation into your user's application menu:
@@ -26,9 +26,17 @@ Optional installation into your user's application menu:
 make install
 ```
 
-Then launch **Simple Todo** from Ubuntu's application menu. Installation copies
-the app into `~/.local/share/simple-todo` and adds a command in `~/.local/bin`.
+Then launch **Tabella** from Ubuntu's application menu. Installation copies
+the app into `~/.local/share/Tabella` and adds the `Tabella` command in
+`~/.local/bin`.
 Run `make install` again after updating the source.
+
+On the first launch after upgrading from Simple Todo, Tabella copies the
+previous database from `~/.local/share/simple-todo/tasks.sqlite3` to
+`~/.local/share/Tabella/tasks.sqlite3`. The copy includes committed SQLite WAL
+changes. The previous database remains in place until you remove it after
+checking the new installation. If `XDG_DATA_HOME` is set to an absolute path,
+the same directory names are used beneath it.
 
 To save a backup, open **Settings**, click **Export**, and choose a `.sqlite3`
 file. The backup includes tasks, notes, groups, and preferences. Export keeps
@@ -55,15 +63,15 @@ Xvfb. The Dockerfile pins the Ubuntu base image by digest and uses a dated
 Ubuntu package snapshot, so rebuilding it installs the same dependency versions.
 
 ```sh
-docker build -t simple-todo-dev .
-docker run --rm simple-todo-dev                # storage and headless GTK tests
-docker run --rm simple-todo-dev make test     # storage tests only
+docker build -t tabella-dev .
+docker run --rm tabella-dev                # storage and headless GTK tests
+docker run --rm tabella-dev make test     # storage tests only
 ```
 
 To test edits without rebuilding the image, mount the working tree:
 
 ```sh
-docker run --rm -v "$PWD":/workspace simple-todo-dev
+docker run --rm -v "$PWD":/workspace tabella-dev
 ```
 
 The container uses Xvfb for UI tests. To launch the desktop app itself, use

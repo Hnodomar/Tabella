@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from todo.storage import Store, database_path
+from tabella.storage import Store, database_path, migrate_legacy_database
 
 
 class StorageTests(unittest.TestCase):
@@ -207,7 +207,7 @@ class StorageTests(unittest.TestCase):
         destination.write_bytes(b"previous backup")
         with self.assertRaises(ValueError):
             self.store.export(self.path)
-        with patch("todo.storage.os.replace", side_effect=OSError("disk is full")):
+        with patch("tabella.storage.os.replace", side_effect=OSError("disk is full")):
             with self.assertRaisesRegex(OSError, "disk is full"):
                 self.store.export(destination)
         self.assertEqual(destination.read_bytes(), b"previous backup")
@@ -218,9 +218,54 @@ class StorageTests(unittest.TestCase):
 
     def test_data_directory_respects_xdg(self):
         with patch.dict(os.environ, {"XDG_DATA_HOME": self.directory.name}):
-            self.assertEqual(database_path(), Path(self.directory.name) / "simple-todo/tasks.sqlite3")
+            self.assertEqual(database_path(), Path(self.directory.name) / "Tabella/tasks.sqlite3")
         with patch.dict(os.environ, {"XDG_DATA_HOME": "relative/path"}):
-            self.assertEqual(database_path(), Path.home() / ".local/share/simple-todo/tasks.sqlite3")
+            self.assertEqual(database_path(), Path.home() / ".local/share/Tabella/tasks.sqlite3")
+
+    def test_legacy_database_migration_copies_wal_and_preserves_all_data(self):
+        root = Path(self.directory.name)
+        source = root / "simple-todo/tasks.sqlite3"
+        previous = Store(source)
+        group = previous.add_group("Home")
+        task = previous.add("Remember this")
+        previous.update(task["id"], body="Detailed note", status=2,
+                        group_id=group["id"])
+        previous.set_group_selected(group["id"], False)
+        previous.set_row_spacing_percent(60)
+        previous.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        previous.update(task["id"], body="Note still in WAL")
+        destination = root / "Tabella/tasks.sqlite3"
+        try:
+            self.assertTrue(migrate_legacy_database(destination))
+            with sqlite3.connect(destination) as migrated:
+                self.assertEqual(migrated.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+                for table in ("tasks", "groups", "settings", "app_preferences", "preferences"):
+                    self.assertEqual(migrated.execute(f"SELECT * FROM {table}").fetchall(),
+                                     [tuple(row) for row in previous.db.execute(f"SELECT * FROM {table}")])
+                self.assertEqual(migrated.execute("PRAGMA user_version").fetchone()[0], 3)
+                self.assertEqual(migrated.execute("SELECT body FROM tasks").fetchone()[0],
+                                 "Note still in WAL")
+            self.assertTrue(source.exists())
+            self.assertFalse(migrate_legacy_database(destination))
+            with sqlite3.connect(destination) as migrated:
+                self.assertEqual(migrated.execute("SELECT COUNT(*) FROM tasks").fetchone()[0], 1)
+        finally:
+            previous.close()
+
+    def test_legacy_migration_does_not_replace_existing_database(self):
+        root = Path(self.directory.name)
+        source = root / "simple-todo/tasks.sqlite3"
+        previous = Store(source)
+        previous.add("Old")
+        previous.close()
+        destination = root / "Tabella/tasks.sqlite3"
+        current = Store(destination)
+        current.add("Current")
+        current.close()
+        self.assertFalse(migrate_legacy_database(destination))
+        with sqlite3.connect(destination) as migrated:
+            self.assertEqual(migrated.execute("SELECT title FROM tasks").fetchall(),
+                             [("Current",)])
 
     def test_row_spacing_is_validated_and_survives_restart(self):
         self.assertEqual(self.store.row_spacing_percent(), 100)

@@ -14,12 +14,41 @@ STATUSES = ("not done", "in progress", "done")
 def database_path():
     data_home = os.environ.get("XDG_DATA_HOME")
     root = Path(data_home) if data_home and Path(data_home).is_absolute() else Path.home() / ".local/share"
-    return root / "simple-todo" / "tasks.sqlite3"
+    return root / "Tabella" / "tasks.sqlite3"
+
+
+def migrate_legacy_database(destination):
+    """Copy the previous installation's database, including committed WAL data."""
+    destination = Path(destination)
+    source = destination.parent.parent / "simple-todo" / "tasks.sqlite3"
+    if destination.exists() or not source.is_file():
+        return False
+    destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    descriptor, temporary_path = tempfile.mkstemp(
+        prefix=".tasks.sqlite3.", suffix=".tmp", dir=destination.parent
+    )
+    os.close(descriptor)
+    try:
+        with closing(sqlite3.connect(source)) as previous, closing(sqlite3.connect(temporary_path)) as copy:
+            previous.backup(copy)
+            copy.execute("PRAGMA journal_mode = DELETE")
+            if copy.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise sqlite3.DatabaseError("Migrated database integrity check failed.")
+        # Publishing through an exclusive link keeps an existing Tabella database intact.
+        try:
+            os.link(temporary_path, destination)
+        except FileExistsError:
+            return False
+        return True
+    finally:
+        Path(temporary_path).unlink(missing_ok=True)
 
 
 class Store:
     def __init__(self, path=None):
         self.path = Path(path) if path is not None else database_path()
+        if path is None:
+            migrate_legacy_database(self.path)
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.db = sqlite3.connect(self.path, timeout=1)
         self.db.row_factory = sqlite3.Row

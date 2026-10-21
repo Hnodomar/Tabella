@@ -1,4 +1,4 @@
 #!/bin/sh
 # Use Ubuntu's Python, where apt installs PyGObject.
 cd -- "$(dirname -- "$(readlink -f -- "$0")")" || exit 1
-exec /usr/bin/python3 -m todo "$@"
+exec /usr/bin/python3 -m tabella "$@"

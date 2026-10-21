@@ -50,8 +50,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk
 
-from todo.app import StatusItem, StatusRow, Task, TaskRow, TodoWindow
-from todo.storage import Store
+from tabella.app import StatusItem, StatusRow, Task, TaskRow, TabellaWindow
+from tabella.storage import Store
 
 
 def tearDownModule():
@@ -83,14 +83,14 @@ class UiTests(unittest.TestCase):
         if not display_ready or display is None or display.__gtype__.name != "GdkX11Display":
             raise RuntimeError("Could not initialize GTK on the virtual X display")
         cls.application = Gtk.Application(
-            application_id="io.github.simpletodo.Test", flags=Gio.ApplicationFlags.NON_UNIQUE
+            application_id="io.github.hnodomar.Tabella.Test", flags=Gio.ApplicationFlags.NON_UNIQUE
         )
         cls.application.register(None)
 
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.store = Store(Path(self.directory.name) / "tasks.sqlite3")
-        self.window = TodoWindow(self.application, self.store)
+        self.window = TabellaWindow(self.application, self.store)
         self.window.present()
         pump()
 
@@ -156,7 +156,7 @@ class UiTests(unittest.TestCase):
         self.assertTrue(header.has_css_class("compact-titlebar"))
         self.assertIsInstance(header.get_title_widget(), Gtk.Box)
         self.assertIsNone(header.get_title_widget().get_first_child())
-        self.assertEqual(self.window.get_title(), "Simple Todo")
+        self.assertEqual(self.window.get_title(), "Tabella")
         self.assertGreater(header.get_height(), 0)
         self.assertLess(header.get_height(), 36)
         for control in (self.window.add_button, self.window.theme_button,
@@ -248,7 +248,7 @@ class UiTests(unittest.TestCase):
         self.window.drag_handle_check.set_active(False)
         self.window.destroy()
         pump()
-        self.window = TodoWindow(self.application, self.store)
+        self.window = TabellaWindow(self.application, self.store)
         self.window.present()
         pump()
         restored_row = next(w for w in descendants(self.window.list)
@@ -288,7 +288,7 @@ class UiTests(unittest.TestCase):
 
         self.window.destroy()
         pump()
-        self.window = TodoWindow(self.application, self.store)
+        self.window = TabellaWindow(self.application, self.store)
         self.window.present()
         pump()
         self.assertEqual(self.window.row_spacing_scale.get_value(), 40)
@@ -396,7 +396,7 @@ class UiTests(unittest.TestCase):
         self.window.group_checks[0].set_active(False)
         self.window.destroy()
         pump()
-        self.window = TodoWindow(self.application, self.store)
+        self.window = TabellaWindow(self.application, self.store)
         self.window.present()
         pump()
         self.assertEqual(self.window.visible_model.get_n_items(), 0)
@@ -464,7 +464,7 @@ class UiTests(unittest.TestCase):
         self.assertIn("disk is full", self.window.message.get_text())
 
     def test_journal_launcher_icon_is_loadable(self):
-        icon = self.window.icon_path("io.github.simpletodo.Desktop.svg")
+        icon = self.window.icon_path("io.github.hnodomar.Tabella.svg")
         texture = Gdk.Texture.new_from_filename(str(icon))
         self.assertEqual((texture.get_width(), texture.get_height()), (256, 256))
 
@@ -500,7 +500,7 @@ class UiTests(unittest.TestCase):
 
         self.window.destroy()
         pump()
-        self.window = TodoWindow(self.application, self.store)
+        self.window = TabellaWindow(self.application, self.store)
         self.window.present()
         pump()
         self.assertEqual([task.id for task in self.window.model],
@@ -594,7 +594,7 @@ class UiTests(unittest.TestCase):
             )
         self.window.destroy()
         pump()
-        self.window = TodoWindow(self.application, self.store)
+        self.window = TabellaWindow(self.application, self.store)
         self.window.present()
         pump(0.15)
         rows = [w for w in descendants(self.window.list) if isinstance(w, TaskRow)]
