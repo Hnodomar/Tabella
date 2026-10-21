@@ -168,6 +168,22 @@ class UiTests(unittest.TestCase):
         self.assertLess(add_bounds.get_x(), header.get_width() / 2)
         self.assertGreater(theme_bounds.get_x(), header.get_width() / 2)
 
+    def test_group_controls_use_matching_unframed_titlebar_icons(self):
+        controls = self.window.group_button.get_parent()
+        self.assertTrue(controls.has_css_class("group-control"))
+        self.assertIs(controls.get_first_child(), self.window.group_button)
+        self.assertIs(self.window.group_button.get_next_sibling(),
+                      self.window.add_group_button)
+        for button, icon_name in ((self.window.group_button, "groups.svg"),
+                                  (self.window.add_group_button, "add.svg")):
+            self.assertFalse(button.get_has_frame())
+            self.assertIsInstance(button.get_child(), Gtk.Image)
+            self.assertTrue(self.window.icon_path(icon_name).is_file())
+            texture = Gdk.Texture.new_from_filename(str(self.window.icon_path(icon_name)))
+            self.assertEqual((texture.get_width(), texture.get_height()), (24, 24))
+            self.assertGreater(button.get_height(), 0)
+            self.assertLessEqual(button.get_height(), self.window.get_titlebar().get_height())
+
     def test_task_title_fills_expand_button_without_arrow(self):
         task, row = self.add_task("A task title that can use the whole row")
         self.assertIs(row.expand.get_child(), row.title)

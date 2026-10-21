@@ -37,6 +37,12 @@ APP_CSS = b"""
         padding: 0;
         margin: 0;
     }
+    headerbar.compact-titlebar .group-control > button,
+    headerbar.compact-titlebar .group-control > menubutton > button {
+        background: transparent;
+        border: none;
+        box-shadow: none;
+    }
     listview.todo-list > row {
         padding: 0;
         margin: 0;
@@ -401,9 +407,14 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.add_button.connect("clicked", self.add_task)
         header.pack_start(self.add_button)
         group_control = Gtk.Box()
-        group_control.add_css_class("linked")
-        self.group_button = Gtk.MenuButton(label="Groups")
+        group_control.add_css_class("group-control")
+        self.group_button = Gtk.MenuButton()
+        self.group_button.set_has_frame(False)
+        self.group_button.set_child(self.icon("groups.svg"))
         self.group_button.set_tooltip_text("Choose visible groups")
+        self.group_button.update_property(
+            [Gtk.AccessibleProperty.LABEL], ["Choose visible groups"]
+        )
         self.group_menu = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.group_checks = {}
         for group in self.groups:
@@ -412,7 +423,9 @@ class TodoWindow(Gtk.ApplicationWindow):
         group_popover.set_child(margins(self.group_menu, 8))
         self.group_button.set_popover(group_popover)
         group_control.append(self.group_button)
-        self.add_group_button = Gtk.Button(label="+")
+        self.add_group_button = Gtk.Button()
+        self.add_group_button.set_has_frame(False)
+        self.add_group_button.set_child(self.icon("add.svg"))
         self.add_group_button.set_tooltip_text("Add a group")
         self.add_group_button.update_property(
             [Gtk.AccessibleProperty.LABEL], ["Add a group"]
