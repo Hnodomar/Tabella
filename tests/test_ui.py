@@ -407,6 +407,62 @@ class UiTests(unittest.TestCase):
         self.assertEqual(self.window.visible_model.get_n_items(), 1)
         self.assertEqual(self.window.visible_model.get_item(0).title, "Ungrouped")
 
+    def test_export_button_saves_pending_notes_to_selected_backup(self):
+        task, row = self.add_task("Back up this task")
+        row.expand.emit("clicked")
+        row.body_buffer.set_text("Latest unsaved note")
+        self.assertIn(task.id, self.window.pending)
+        self.assertEqual(self.window.export_button.get_label(), "Export")
+        destination = Path(self.directory.name) / "chosen-backup.sqlite3"
+
+        self.window.export_button.emit("clicked")
+        chooser = self.window.export_chooser
+        self.assertIsInstance(chooser, Gtk.FileChooserNative)
+        self.assertEqual(chooser.get_action(), Gtk.FileChooserAction.SAVE)
+        with patch.object(chooser, "get_file", return_value=Gio.File.new_for_path(
+                str(destination))):
+            chooser.emit("response", Gtk.ResponseType.ACCEPT)
+
+        self.assertIsNone(self.window.export_chooser)
+        self.assertFalse(self.window.pending)
+        self.assertIn("Backup exported", self.window.message.get_text())
+        with sqlite3.connect(destination) as backup:
+            self.assertEqual(backup.execute("SELECT title, body FROM tasks").fetchone(),
+                             ("Back up this task", "Latest unsaved note"))
+
+    def test_export_cancel_leaves_no_file_and_save_failure_is_reported(self):
+        self.window.export_button.emit("clicked")
+        chooser = self.window.export_chooser
+        chooser.emit("response", Gtk.ResponseType.CANCEL)
+        self.assertIsNone(self.window.export_chooser)
+
+        destination = Path(self.directory.name) / "failed-backup.sqlite3"
+        with patch.object(self.store, "export", side_effect=OSError("disk is full")):
+            self.window.export_button.emit("clicked")
+            chooser = self.window.export_chooser
+            with patch.object(chooser, "get_file", return_value=Gio.File.new_for_path(
+                    str(destination))):
+                chooser.emit("response", Gtk.ResponseType.ACCEPT)
+        self.assertFalse(destination.exists())
+        self.assertIn("Export failed: disk is full", self.window.message.get_text())
+
+    def test_export_stops_if_pending_task_edits_cannot_be_saved(self):
+        task, row = self.add_task()
+        row.expand.emit("clicked")
+        row.body_buffer.set_text("Keep this draft")
+        destination = Path(self.directory.name) / "stale-backup.sqlite3"
+        with patch.object(self.store, "update", side_effect=OSError("disk is full")):
+            with patch.object(self.store, "export") as export:
+                self.window.export_button.emit("clicked")
+                chooser = self.window.export_chooser
+                with patch.object(chooser, "get_file", return_value=Gio.File.new_for_path(
+                        str(destination))):
+                    chooser.emit("response", Gtk.ResponseType.ACCEPT)
+                export.assert_not_called()
+        self.assertIn(task.id, self.window.pending)
+        self.assertFalse(destination.exists())
+        self.assertIn("disk is full", self.window.message.get_text())
+
     def test_journal_launcher_icon_is_loadable(self):
         icon = self.window.icon_path("io.github.simpletodo.Desktop.svg")
         texture = Gdk.Texture.new_from_filename(str(icon))

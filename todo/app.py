@@ -376,6 +376,7 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.pending = {}
         self.save_source = 0
         self.save_error = None
+        self.export_chooser = None
         self.settings = Gtk.Settings.get_default()
         self.system_theme_name = self.settings.get_property("gtk-theme-name")
         self.system_prefers_dark = self.settings.get_property(
@@ -482,6 +483,10 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.row_spacing_scale.set_value(self.row_spacing_percent)
         self.row_spacing_scale.connect("value-changed", self.change_row_spacing)
         settings_menu.append(self.row_spacing_scale)
+        self.export_button = Gtk.Button(label="Export", halign=Gtk.Align.START)
+        self.export_button.set_tooltip_text("Export all tasks and settings to a backup file")
+        self.export_button.connect("clicked", self.export_data)
+        settings_menu.append(self.export_button)
         popover.set_child(settings_menu)
         self.settings_button.set_popover(popover)
         header.pack_end(self.settings_button)
@@ -817,9 +822,42 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.update_message()
         return True
 
-    def report_error(self, error):
+    def export_data(self, *_):
+        if self.export_chooser is not None:
+            return
+        self.settings_button.popdown()
+        chooser = Gtk.FileChooserNative.new(
+            "Export backup", self, Gtk.FileChooserAction.SAVE, "Export", "Cancel"
+        )
+        chooser.set_modal(True)
+        chooser.set_current_name("simple-todo-backup.sqlite3")
+        chooser.connect("response", self.finish_export)
+        self.export_chooser = chooser
+        chooser.show()
+
+    def finish_export(self, chooser, response_id):
+        file = chooser.get_file() if response_id == Gtk.ResponseType.ACCEPT else None
+        chooser.destroy()
+        self.export_chooser = None
+        if file is None:
+            return
+        if not self.flush():
+            return
+        path = file.get_path()
+        if path is None:
+            self.report_error(ValueError("Choose a local file for the backup."), "Export")
+            return
+        try:
+            self.store.export(path)
+        except Exception as error:
+            self.report_error(error, "Export")
+            return
+        self.update_message(clear_error=True)
+        self.message.set_text(f"Backup exported: {file.get_basename()}")
+
+    def report_error(self, error, operation="Task operation"):
         self.save_error = str(error)
-        self.message.set_text(f"Task operation failed: {error}")
+        self.message.set_text(f"{operation} failed: {error}")
         self.message.add_css_class("error")
         self.retry.set_visible(bool(self.pending))
 
