@@ -78,6 +78,7 @@ class Task(GObject.Object):
         self.id = record["id"]
         self.title = record["title"]
         self.status = record["status"]
+        self.group_id = record["group_id"]
         self.created_at = record["created_at"]
         self.body = None
         self.expanded = False
@@ -262,6 +263,7 @@ class TaskRow(Gtk.Box):
         self.loading = True
         self.title_entry.set_text(self.task.title)
         self.body_buffer.set_text(self.task.body)
+        self.group_dropdown.set_selected(self.window.group_index(self.task.group_id))
         self.loading = False
         self.details.set_visible(True)
         return True
@@ -282,6 +284,11 @@ class TaskRow(Gtk.Box):
         focus.connect("leave", self.title_left)
         self.title_entry.add_controller(focus)
         self.details.append(self.title_entry)
+        self.details.append(Gtk.Label(label="Group", xalign=0))
+        self.group_dropdown = Gtk.DropDown(model=self.window.group_names)
+        self.group_dropdown.update_property([Gtk.AccessibleProperty.LABEL], ["Task group"])
+        self.group_dropdown.connect("notify::selected", self.group_changed)
+        self.details.append(self.group_dropdown)
         self.details.append(Gtk.Label(label="Notes", xalign=0))
         text = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR)
         text.set_top_margin(8)
@@ -330,6 +337,16 @@ class TaskRow(Gtk.Box):
             self.task.body = body
             self.window.queue_edit(self.task, body=body)
 
+    def group_changed(self, dropdown, *_):
+        if self.loading or self.task is None:
+            return
+        group_id = self.window.group_ids[dropdown.get_selected()]
+        if group_id != self.task.group_id:
+            if not self.window.change_task_group(self.task, group_id):
+                self.loading = True
+                dropdown.set_selected(self.window.group_index(self.task.group_id))
+                self.loading = False
+
     def cycle_status(self, *_):
         status = (self.task.status + 1) % 3
         try:
@@ -358,9 +375,17 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.use_ubuntu_theme = store.ubuntu_theme_enabled()
         self.row_spacing_percent = store.row_spacing_percent()
         self.drag_handle_enabled = store.drag_handle_enabled()
+        self.groups = [dict(row) for row in store.list_groups()]
+        self.group_ids = [group["id"] for group in self.groups]
+        self.group_names = Gtk.StringList.new([group["name"] for group in self.groups])
+        self.selected_groups = {group["id"] for group in self.groups if group["selected"]}
         self._applying_appearance = False
         self.model = Gio.ListStore.new(GObject.Object)
         self.model.splice(0, 0, [Task(record) for record in store.list_tasks()])
+        self.group_filter = Gtk.CustomFilter.new(
+            lambda task: task.group_id in self.selected_groups
+        )
+        self.visible_model = Gtk.FilterListModel.new(self.model, self.group_filter)
         self.connect("close-request", self.on_close)
 
         header = Gtk.HeaderBar()
@@ -375,6 +400,26 @@ class TodoWindow(Gtk.ApplicationWindow):
         )
         self.add_button.connect("clicked", self.add_task)
         header.pack_start(self.add_button)
+        group_control = Gtk.Box()
+        group_control.add_css_class("linked")
+        self.group_button = Gtk.MenuButton(label="Groups")
+        self.group_button.set_tooltip_text("Choose visible groups")
+        self.group_menu = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.group_checks = {}
+        for group in self.groups:
+            self.add_group_check(group)
+        group_popover = Gtk.Popover()
+        group_popover.set_child(margins(self.group_menu, 8))
+        self.group_button.set_popover(group_popover)
+        group_control.append(self.group_button)
+        self.add_group_button = Gtk.Button(label="+")
+        self.add_group_button.set_tooltip_text("Add a group")
+        self.add_group_button.update_property(
+            [Gtk.AccessibleProperty.LABEL], ["Add a group"]
+        )
+        self.add_group_button.connect("clicked", self.prompt_add_group)
+        group_control.append(self.add_group_button)
+        header.pack_start(group_control)
         self.theme_button = Gtk.Button()
         self.theme_button.add_css_class("flat")
         self.theme_button.set_child(self.icon("sun.svg"))
@@ -437,8 +482,8 @@ class TodoWindow(Gtk.ApplicationWindow):
         self.retry = self.status_row.retry
         self.status_model = Gio.ListStore.new(GObject.Object)
         self.status_model.append(StatusItem())
-        sections = Gio.ListStore.new(Gio.ListStore)
-        sections.append(self.model)
+        sections = Gio.ListStore.new(GObject.Object)
+        sections.append(self.visible_model)
         sections.append(self.status_model)
         self.list_model = Gtk.FlattenListModel.new(sections)
         factory = Gtk.SignalListItemFactory()
@@ -524,6 +569,83 @@ class TodoWindow(Gtk.ApplicationWindow):
         while child is not None:
             self.apply_drag_handle_visibility(child)
             child = child.get_next_sibling()
+
+    def group_index(self, group_id):
+        return self.group_ids.index(group_id)
+
+    def add_group_check(self, group):
+        check = Gtk.CheckButton(label=group["name"])
+        check.set_active(bool(group["selected"]))
+        check.connect("toggled", self.toggle_group, group["id"])
+        self.group_checks[group["id"]] = check
+        self.group_menu.append(check)
+
+    def toggle_group(self, check, group_id):
+        selected = check.get_active()
+        if selected == (group_id in self.selected_groups):
+            return
+        if not self.flush():
+            check.set_active(not selected)
+            return
+        try:
+            self.store.set_group_selected(group_id, selected)
+        except Exception as error:
+            check.set_active(not selected)
+            self.report_error(error)
+            return
+        if selected:
+            self.selected_groups.add(group_id)
+        else:
+            self.selected_groups.remove(group_id)
+        self.group_filter.changed(Gtk.FilterChange.DIFFERENT)
+        self.update_message(clear_error=True)
+
+    def prompt_add_group(self, *_):
+        dialog = Gtk.Dialog(
+            title="Add group", application=self.get_application(),
+            transient_for=self, modal=True,
+        )
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Add", Gtk.ResponseType.ACCEPT)
+        entry = Gtk.Entry(placeholder_text="Group name", activates_default=True)
+        entry.update_property([Gtk.AccessibleProperty.LABEL], ["Group name"])
+        margins(entry, 12)
+        dialog.get_content_area().append(entry)
+        dialog.set_default_response(Gtk.ResponseType.ACCEPT)
+
+        def response(dialog, response_id):
+            name = entry.get_text().strip()
+            dialog.destroy()
+            if response_id != Gtk.ResponseType.ACCEPT:
+                return
+            try:
+                group = self.store.add_group(name)
+            except Exception as error:
+                self.report_error(error)
+                return
+            self.groups.append(group)
+            self.group_ids.append(group["id"])
+            self.group_names.append(group["name"])
+            self.selected_groups.add(group["id"])
+            self.add_group_check(group)
+            self.update_message(clear_error=True)
+
+        dialog.connect("response", response)
+        dialog.present()
+        entry.grab_focus()
+
+    def change_task_group(self, task, group_id):
+        if not self.flush():
+            return False
+        try:
+            self.store.update(task.id, group_id=group_id)
+        except Exception as error:
+            self.report_error(error)
+            return False
+        task.group_id = group_id
+        self.group_filter.changed(Gtk.FilterChange.DIFFERENT)
+        self.update_message(clear_error=True)
+        return True
 
     def icon_path(self, name):
         from pathlib import Path
@@ -612,6 +734,11 @@ class TodoWindow(Gtk.ApplicationWindow):
 
     def add_task(self, *_):
         try:
+            if 0 not in self.selected_groups:
+                self.store.set_group_selected(0, True)
+                self.selected_groups.add(0)
+                self.group_checks[0].set_active(True)
+                self.group_filter.changed(Gtk.FilterChange.DIFFERENT)
             record = self.store.add("New task")
         except Exception as error:
             self.report_error(error)

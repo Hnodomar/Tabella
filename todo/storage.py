@@ -25,7 +25,7 @@ class Store:
             self.db.execute("PRAGMA journal_mode = WAL")
             self.db.execute("PRAGMA synchronous = FULL")
             version = self.db.execute("PRAGMA user_version").fetchone()[0]
-            if version > 2:
+            if version > 3:
                 raise RuntimeError("This task database was created by a newer version of the app.")
             with self.db:
                 self.db.execute("""
@@ -90,6 +90,21 @@ class Store:
                     )
                     self.db.execute("UPDATE tasks SET sort_order = -id")
                     self.db.execute("PRAGMA user_version = 2")
+                self.db.execute("""
+                    CREATE TABLE IF NOT EXISTS groups (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL UNIQUE CHECK(length(trim(name)) > 0),
+                        selected INTEGER NOT NULL DEFAULT 1 CHECK(selected IN (0, 1))
+                    )
+                """)
+                self.db.execute(
+                    "INSERT OR IGNORE INTO groups (id, name) VALUES (0, 'No group')"
+                )
+                if version < 3:
+                    self.db.execute(
+                        "ALTER TABLE tasks ADD COLUMN group_id INTEGER NOT NULL DEFAULT 0"
+                    )
+                    self.db.execute("PRAGMA user_version = 3")
                 self.db.execute(
                     "CREATE INDEX IF NOT EXISTS tasks_sort_order_idx ON tasks(sort_order, id DESC)"
                 )
@@ -100,8 +115,32 @@ class Store:
     def list_tasks(self):
         # Bodies may be large; read them only when a row is expanded.
         return self.db.execute(
-            "SELECT id, title, status, created_at FROM tasks ORDER BY sort_order, id DESC"
+            "SELECT id, title, status, created_at, group_id FROM tasks ORDER BY sort_order, id DESC"
         ).fetchall()
+
+    def list_groups(self):
+        return self.db.execute(
+            "SELECT id, name, selected FROM groups ORDER BY id"
+        ).fetchall()
+
+    def add_group(self, name):
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("A group name is required.")
+        name = name.strip()
+        with self.db:
+            cursor = self.db.execute("INSERT INTO groups (name) VALUES (?)", (name,))
+        return dict(id=cursor.lastrowid, name=name, selected=1)
+
+    def set_group_selected(self, group_id, selected):
+        if type(selected) is not bool:
+            raise ValueError("Group selection must be a boolean.")
+        with self.db:
+            cursor = self.db.execute(
+                "UPDATE groups SET selected = ? WHERE id = ?",
+                (int(selected), group_id),
+            )
+            if cursor.rowcount != 1:
+                raise LookupError("Group no longer exists.")
 
     def body(self, task_id):
         row = self.db.execute("SELECT body FROM tasks WHERE id = ?", (task_id,)).fetchone()
@@ -174,7 +213,8 @@ class Store:
                 "VALUES (?, ?, COALESCE((SELECT MIN(sort_order) - 1 FROM tasks), 0))",
                 (title, created_at),
             )
-        return dict(id=cursor.lastrowid, title=title, status=0, created_at=created_at)
+        return dict(id=cursor.lastrowid, title=title, status=0,
+                    created_at=created_at, group_id=0)
 
     def move(self, task_id, position):
         """Move a task to a zero-based position in the saved task list."""
@@ -201,7 +241,7 @@ class Store:
             )
 
     def update(self, task_id, **fields):
-        if not fields or fields.keys() - {"title", "body", "status"}:
+        if not fields or fields.keys() - {"title", "body", "status", "group_id"}:
             raise ValueError("Invalid task fields.")
         if "title" in fields:
             fields["title"] = fields["title"].strip()
@@ -209,6 +249,12 @@ class Store:
                 raise ValueError("A title is required.")
         if "status" in fields and (type(fields["status"]) is not int or fields["status"] not in range(3)):
             raise ValueError("Invalid status.")
+        if "group_id" in fields:
+            group_id = fields["group_id"]
+            if type(group_id) is not int or self.db.execute(
+                "SELECT 1 FROM groups WHERE id = ?", (group_id,)
+            ).fetchone() is None:
+                raise ValueError("Invalid group.")
         # Column names come only from the allowlist above; values are parameters.
         assignments = ", ".join(f"{field} = ?" for field in fields)
         with self.db:
