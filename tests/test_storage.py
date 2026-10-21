@@ -31,7 +31,8 @@ class StorageTests(unittest.TestCase):
         self.store.close()
         self.store = Store(self.path)
         saved = dict(self.store.list_tasks()[0])
-        self.assertEqual(saved, dict(id=task["id"], title="Renamed", status=2, created_at=created))
+        self.assertEqual(saved, dict(id=task["id"], title="Renamed", status=2,
+                                     created_at=created, group_id=0))
         self.assertEqual(self.store.body(task["id"]), body)
 
     def test_newest_first_and_deletion_persists(self):
@@ -112,7 +113,8 @@ class StorageTests(unittest.TestCase):
         try:
             self.assertEqual([row["id"] for row in old_store.list_tasks()], [7, 2])
             self.assertEqual(old_store.body(2), "Old note")
-            self.assertEqual(old_store.db.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(old_store.db.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertEqual([row["group_id"] for row in old_store.list_tasks()], [0, 0])
             old_store.move(2, 0)
             self.assertEqual([row["id"] for row in old_store.list_tasks()], [2, 7])
         finally:
@@ -145,10 +147,34 @@ class StorageTests(unittest.TestCase):
             self.store.update(999, title="Missing")
 
     def test_future_database_version_is_rejected(self):
-        self.store.db.execute("PRAGMA user_version = 3")
+        self.store.db.execute("PRAGMA user_version = 4")
         with self.assertRaises(RuntimeError):
             Store(self.path)
-        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 3)
+        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 4)
+
+    def test_groups_and_selection_persist_with_task_assignment(self):
+        task = self.store.add("Task")
+        self.assertEqual([(row["name"], row["selected"]) for row in self.store.list_groups()],
+                         [("No group", 1)])
+        group = self.store.add_group("  Home  ")
+        self.assertEqual(group["name"], "Home")
+        self.store.update(task["id"], group_id=group["id"])
+        self.store.set_group_selected(0, False)
+        self.store.set_group_selected(group["id"], False)
+        self.store.close()
+        self.store = Store(self.path)
+        self.assertEqual(self.store.list_tasks()[0]["group_id"], group["id"])
+        self.assertEqual([(row["name"], row["selected"]) for row in self.store.list_groups()],
+                         [("No group", 0), ("Home", 0)])
+        for invalid in ("", "  ", None):
+            with self.assertRaises(ValueError):
+                self.store.add_group(invalid)
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.store.add_group("Home")
+        with self.assertRaises(ValueError):
+            self.store.update(task["id"], group_id=999)
+        with self.assertRaises(ValueError):
+            self.store.set_group_selected(group["id"], 1)
 
     def test_data_directory_respects_xdg(self):
         with patch.dict(os.environ, {"XDG_DATA_HOME": self.directory.name}):
