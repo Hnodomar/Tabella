@@ -20,4 +20,4 @@ install:
 	install -m 644 tabella/assets/io.github.hnodomar.Tabella.svg "$(DESTDIR)$(ICON_DIR)/io.github.hnodomar.Tabella.svg"
 	install -m 755 Tabella "$(DESTDIR)$(APP_DIR)/Tabella"
 	ln -sfn "$(APP_DIR)/Tabella" "$(DESTDIR)$(PREFIX)/bin/Tabella"
-	printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Tabella' 'Comment=A small, automatically saved task list' 'Exec="$(APP_DIR)/Tabella"' 'Icon=io.github.hnodomar.Tabella' 'Terminal=false' 'Categories=Office;Utility;' 'StartupNotify=true' > "$(DESTDIR)$(PREFIX)/share/applications/io.github.hnodomar.Tabella.desktop"
+	printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Tabella' 'Comment=A small, automatically saved task list' 'Exec="$(APP_DIR)/Tabella"' 'Icon=io.github.hnodomar.Tabella' 'Terminal=false' 'Categories=Office;Utility;' 'StartupNotify=true' 'StartupWMClass=io.github.hnodomar.Tabella' > "$(DESTDIR)$(PREFIX)/share/applications/io.github.hnodomar.Tabella.desktop"

@@ -50,7 +50,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk
 
-from tabella.app import StatusItem, StatusRow, Task, TaskRow, TabellaWindow
+from tabella.app import APP_ID, StatusItem, StatusRow, TabellaApplication, Task, TaskRow, TabellaWindow
 from tabella.storage import Store
 
 
@@ -467,6 +467,13 @@ class UiTests(unittest.TestCase):
         icon = self.window.icon_path("io.github.hnodomar.Tabella.svg")
         texture = Gdk.Texture.new_from_filename(str(icon))
         self.assertEqual((texture.get_width(), texture.get_height()), (256, 256))
+
+    def test_desktop_window_uses_tabella_identity_and_icon(self):
+        self.assertEqual(self.window.get_icon_name(), APP_ID)
+        application = TabellaApplication()
+        application.set_flags(Gio.ApplicationFlags.NON_UNIQUE)
+        application.register(None)
+        self.assertEqual(GLib.get_prgname(), APP_ID)
 
     def test_dragging_rows_changes_and_saves_their_order(self):
         first, _ = self.add_task("First")
