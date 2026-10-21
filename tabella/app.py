@@ -372,6 +372,7 @@ class TaskRow(Gtk.Box):
 class TabellaWindow(Gtk.ApplicationWindow):
     def __init__(self, application, store):
         super().__init__(application=application, title="Tabella", default_width=640, default_height=650)
+        self.set_icon_name(APP_ID)
         self.store = store
         self.pending = {}
         self.save_source = 0
@@ -914,6 +915,11 @@ class TabellaApplication(Gtk.Application):
         super().__init__(application_id=APP_ID)
         self.store = None
         self.exit_status = 0
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        # `python -m tabella` otherwise gives X11 windows the class "__main__.py".
+        GLib.set_prgname(APP_ID)
 
     def do_activate(self):
         window = self.get_active_window()
