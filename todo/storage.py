@@ -1,9 +1,11 @@
 """SQLite persistence; independent of GTK and third-party packages."""
 
+from contextlib import closing
 from datetime import datetime, timezone
 import os
 from pathlib import Path
 import sqlite3
+import tempfile
 
 
 STATUSES = ("not done", "in progress", "done")
@@ -267,6 +269,26 @@ class Store:
     def delete(self, task_id):
         with self.db:
             self.db.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+
+    def export(self, path):
+        """Write a complete, standalone SQLite backup without changing the live database."""
+        destination = Path(path)
+        if destination.resolve() == self.path.resolve():
+            raise ValueError("Choose a different file from the active task database.")
+        descriptor, temporary_path = tempfile.mkstemp(
+            prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
+        )
+        os.close(descriptor)
+        try:
+            with closing(sqlite3.connect(temporary_path)) as backup:
+                self.db.backup(backup)
+                # Export one self-contained file even when the live database uses WAL.
+                backup.execute("PRAGMA journal_mode = DELETE")
+                if backup.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise sqlite3.DatabaseError("Backup integrity check failed.")
+            os.replace(temporary_path, destination)
+        finally:
+            Path(temporary_path).unlink(missing_ok=True)
 
     def close(self):
         self.db.close()

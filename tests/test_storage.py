@@ -176,6 +176,46 @@ class StorageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.set_group_selected(group["id"], 1)
 
+    def test_export_is_complete_standalone_snapshot(self):
+        group = self.store.add_group("Work")
+        task = self.store.add("Prepare report")
+        self.store.update(task["id"], body="Detailed notes", status=1,
+                          group_id=group["id"])
+        self.store.set_group_selected(0, False)
+        self.store.set_row_spacing_percent(65)
+        destination = Path(self.directory.name) / "backup.sqlite3"
+
+        self.store.export(destination)
+
+        with sqlite3.connect(destination) as backup:
+            self.assertEqual(backup.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+            self.assertEqual(backup.execute("PRAGMA journal_mode").fetchone()[0], "delete")
+            self.assertEqual(backup.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertEqual(backup.execute(
+                "SELECT title, body, status, group_id FROM tasks"
+            ).fetchone(), ("Prepare report", "Detailed notes", 1, group["id"]))
+            self.assertEqual(backup.execute(
+                "SELECT name, selected FROM groups ORDER BY id"
+            ).fetchall(), [("No group", 0), ("Work", 1)])
+            self.assertEqual(backup.execute(
+                "SELECT value FROM preferences WHERE key = 'row_spacing_percent'"
+            ).fetchone()[0], "65")
+        self.assertFalse(destination.with_name(destination.name + "-wal").exists())
+
+    def test_export_preserves_existing_file_on_failure_and_rejects_live_database(self):
+        destination = Path(self.directory.name) / "backup.sqlite3"
+        destination.write_bytes(b"previous backup")
+        with self.assertRaises(ValueError):
+            self.store.export(self.path)
+        with patch("todo.storage.os.replace", side_effect=OSError("disk is full")):
+            with self.assertRaisesRegex(OSError, "disk is full"):
+                self.store.export(destination)
+        self.assertEqual(destination.read_bytes(), b"previous backup")
+        self.assertEqual(list(destination.parent.glob(".backup.sqlite3.*.tmp")), [])
+        self.store.export(destination)
+        with sqlite3.connect(destination) as backup:
+            self.assertEqual(backup.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+
     def test_data_directory_respects_xdg(self):
         with patch.dict(os.environ, {"XDG_DATA_HOME": self.directory.name}):
             self.assertEqual(database_path(), Path(self.directory.name) / "simple-todo/tasks.sqlite3")

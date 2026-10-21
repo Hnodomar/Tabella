@@ -30,6 +30,10 @@ Then launch **Simple Todo** from Ubuntu's application menu. Installation copies
 the app into `~/.local/share/simple-todo` and adds a command in `~/.local/bin`.
 Run `make install` again after updating the source.
 
+To save a backup, open **Settings**, click **Export**, and choose a `.sqlite3`
+file. The backup includes tasks, notes, groups, and preferences. Export keeps
+the active database in place.
+
 ## Checks
 
 ```sh
