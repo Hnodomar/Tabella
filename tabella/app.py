@@ -71,6 +71,13 @@ APP_CSS = b"""
     .task-row.drop-after {
         box-shadow: inset 0 -2px currentColor;
     }
+    .task-row button.inline-display,
+    .task-row button.inline-display:hover {
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        padding: 0;
+    }
 """
 
 
@@ -220,7 +227,7 @@ class TaskRow(Gtk.Box):
 
     def focus_new_title(self, task):
         if self.task is task and self.details is not None:
-            self.title_entry.grab_focus()
+            self.edit_title()
             self.title_entry.select_region(0, -1)
             task.focus_title = False
         return GLib.SOURCE_REMOVE
@@ -273,6 +280,12 @@ class TaskRow(Gtk.Box):
             self.build_details()
         self.title_entry.set_text(self.task.title)
         self.body_buffer.set_text(self.task.body)
+        self.title_display_label.set_text(self.task.title)
+        self.notes_display_label.set_text(self.task.body or "Click to add notes")
+        self.title_display.set_visible(True)
+        self.title_entry.set_visible(False)
+        self.notes_display.set_visible(True)
+        self.notes_editor.set_visible(False)
         self.refresh_group_checks()
         self.loading = False
         self.details.set_visible(True)
@@ -287,7 +300,13 @@ class TaskRow(Gtk.Box):
         date.add_css_class("dim-label")
         self.details.append(date)
 
-        self.title_entry = Gtk.Entry(hexpand=True)
+        self.title_display = Gtk.Button(hexpand=True)
+        self.title_display.add_css_class("inline-display")
+        self.title_display_label = Gtk.Label(xalign=0, hexpand=True)
+        self.title_display.set_child(self.title_display_label)
+        self.title_display.connect("clicked", self.edit_title)
+        self.details.append(self.title_display)
+        self.title_entry = Gtk.Entry(hexpand=True, visible=False)
         self.title_entry.update_property([Gtk.AccessibleProperty.LABEL], ["Task title"])
         self.title_entry.connect("changed", self.title_changed)
         focus = Gtk.EventControllerFocus()
@@ -295,7 +314,7 @@ class TaskRow(Gtk.Box):
         self.title_entry.add_controller(focus)
         self.details.append(self.title_entry)
         self.details.append(Gtk.Label(label="Groups", xalign=0))
-        self.group_dropdown = Gtk.MenuButton(label="No group")
+        self.group_dropdown = Gtk.MenuButton(label="No group", halign=Gtk.Align.START)
         self.group_dropdown.update_property([Gtk.AccessibleProperty.LABEL], ["Task groups"])
         self.group_menu = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.group_checks = {}
@@ -305,6 +324,12 @@ class TaskRow(Gtk.Box):
         self.group_dropdown.set_popover(group_popover)
         self.details.append(self.group_dropdown)
         self.details.append(Gtk.Label(label="Notes", xalign=0))
+        self.notes_display = Gtk.Button(hexpand=True)
+        self.notes_display.add_css_class("inline-display")
+        self.notes_display_label = Gtk.Label(xalign=0, hexpand=True, wrap=True)
+        self.notes_display.set_child(self.notes_display_label)
+        self.notes_display.connect("clicked", self.edit_notes)
+        self.details.append(self.notes_display)
         text = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR)
         text.set_top_margin(8)
         text.set_bottom_margin(8)
@@ -313,11 +338,16 @@ class TaskRow(Gtk.Box):
         text.update_property([Gtk.AccessibleProperty.LABEL], ["Notes"])
         self.body_buffer = text.get_buffer()
         self.body_buffer.connect("changed", self.body_changed)
-        scroll = Gtk.ScrolledWindow(min_content_height=110, max_content_height=240)
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroll.set_has_frame(True)
-        scroll.set_child(text)
-        self.details.append(scroll)
+        notes_focus = Gtk.EventControllerFocus()
+        notes_focus.connect("leave", self.notes_left)
+        text.add_controller(notes_focus)
+        self.notes_editor = Gtk.ScrolledWindow(
+            min_content_height=110, max_content_height=240, visible=False
+        )
+        self.notes_editor.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.notes_editor.set_has_frame(True)
+        self.notes_editor.set_child(text)
+        self.details.append(self.notes_editor)
         delete = Gtk.Button(label="Delete task", halign=Gtk.Align.START)
         delete.add_css_class("destructive-action")
         delete.connect("clicked", lambda *_: self.window.confirm_delete(self.task))
@@ -335,14 +365,22 @@ class TaskRow(Gtk.Box):
         entry.set_tooltip_text(None)
         if title != self.task.title:
             self.task.title = title
+            self.title_display_label.set_text(title)
             self.task.emit("changed")
             self.window.queue_edit(self.task, title=title)
+
+    def edit_title(self, *_):
+        self.title_display.set_visible(False)
+        self.title_entry.set_visible(True)
+        self.title_entry.grab_focus()
 
     def title_left(self, *_):
         if self.task is not None:
             self.title_entry.set_text(self.task.title)
             self.title_entry.remove_css_class("error")
             self.window.flush()
+            self.title_entry.set_visible(False)
+            self.title_display.set_visible(True)
 
     def body_changed(self, buffer):
         if self.loading or self.task is None:
@@ -350,7 +388,19 @@ class TaskRow(Gtk.Box):
         body = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
         if body != self.task.body:
             self.task.body = body
+            self.notes_display_label.set_text(body or "Click to add notes")
             self.window.queue_edit(self.task, body=body)
+
+    def edit_notes(self, *_):
+        self.notes_display.set_visible(False)
+        self.notes_editor.set_visible(True)
+        self.notes_editor.get_child().grab_focus()
+
+    def notes_left(self, *_):
+        if self.task is not None:
+            self.window.flush()
+            self.notes_editor.set_visible(False)
+            self.notes_display.set_visible(True)
 
     def refresh_group_checks(self):
         for group in self.window.groups:

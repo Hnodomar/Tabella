@@ -424,6 +424,47 @@ class UiTests(unittest.TestCase):
         self.assertEqual(self.store.list_tasks()[0]["group_ids"], ())
         self.assertEqual(restored_row.group_dropdown.get_label(), "No group")
 
+    def test_task_details_show_plain_text_until_title_or_notes_are_clicked(self):
+        task, row = self.add_task("Plan the week")
+        row.expand.emit("clicked")
+        pump()
+        self.assertTrue(row.title_display.get_visible())
+        self.assertFalse(row.title_entry.get_visible())
+        self.assertEqual(row.title_display_label.get_text(), task.title)
+        self.assertTrue(row.title_display.has_css_class("inline-display"))
+        self.assertTrue(row.notes_display.get_visible())
+        self.assertFalse(row.notes_editor.get_visible())
+        self.assertEqual(row.notes_display_label.get_text(), "Click to add notes")
+        self.assertTrue(row.notes_display.has_css_class("inline-display"))
+
+        self.assertEqual(row.group_dropdown.get_halign(), Gtk.Align.START)
+        self.assertLess(row.group_dropdown.get_width(), row.details.get_width())
+        group_bounds = row.group_dropdown.compute_bounds(row.details)[1]
+        self.assertEqual(group_bounds.get_x(), 0)
+
+        row.title_display.emit("clicked")
+        self.assertFalse(row.title_display.get_visible())
+        self.assertTrue(row.title_entry.get_visible())
+        self.assertTrue(row.title_entry.get_has_frame())
+        row.title_entry.set_text("Revised plan")
+        row.notes_display.grab_focus()
+        pump()
+        self.assertTrue(row.title_display.get_visible())
+        self.assertFalse(row.title_entry.get_visible())
+        self.assertEqual(row.title_display_label.get_text(), "Revised plan")
+
+        row.notes_display.emit("clicked")
+        self.assertFalse(row.notes_display.get_visible())
+        self.assertTrue(row.notes_editor.get_visible())
+        self.assertTrue(row.notes_editor.get_has_frame())
+        row.body_buffer.set_text("Call the team")
+        row.group_dropdown.grab_focus()
+        pump()
+        self.assertTrue(row.notes_display.get_visible())
+        self.assertFalse(row.notes_editor.get_visible())
+        self.assertEqual(row.notes_display_label.get_text(), "Call the team")
+        self.assertEqual(self.store.body(task.id), "Call the team")
+
     def test_export_button_saves_pending_notes_to_selected_backup(self):
         task, row = self.add_task("Back up this task")
         row.expand.emit("clicked")
