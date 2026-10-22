@@ -5,53 +5,41 @@ SQLite. No pip dependencies, browser runtime, server, or network connection.
 
 ## Run
 
-On Ubuntu 22.04 or later, install the runtime packages if needed:
+On Ubuntu 22.04 or later, install the required packages if needed:
 
 ```sh
 sudo apt install python3 python3-gi gir1.2-gtk-4.0
 ```
 
-From this repository:
+Then run from this repository:
 
 ```sh
 ./Tabella
 ```
 
-Use `/usr/bin/python3 -m tabella` or `make run` as alternatives. Use the system
-Python; a virtual environment may not include Ubuntu's GTK bindings.
-
-To open a different SQLite database, pass its path:
+To use a separate task list, pass an absolute database path. Tabella creates the
+file if needed and opens it in a separate instance:
 
 ```sh
 ./Tabella --database /absolute/path/to/work.sqlite
 ```
 
-Tabella opens that file or creates it if it does not exist. An explicit database
-starts a separate app instance, so it can run alongside your default task list.
-Use an absolute path with the `Tabella` launcher because it changes to its
-installation directory before starting Python.
-
-Optional installation into your user's application menu:
+To add Tabella to your application menu:
 
 ```sh
 make install
 ```
 
-Then launch **Tabella** from Ubuntu's application menu. Installation copies
-the app into `~/.local/share/Tabella` and adds the `Tabella` command in
-`~/.local/bin`.
-Run `make install` again after updating the source.
+Launch **Tabella** from the menu. Run `make install` again after updating the
+source.
 
-On the first launch after upgrading from Simple Todo, Tabella copies the
-previous database from `~/.local/share/simple-todo/tasks.sqlite3` to
-`~/.local/share/Tabella/tasks.sqlite3`. The copy includes committed SQLite WAL
-changes. The previous database remains in place until you remove it after
-checking the new installation. If `XDG_DATA_HOME` is set to an absolute path,
-the same directory names are used beneath it.
+## Data and backups
 
-To save a backup, open **Settings**, click **Export**, and choose a `.sqlite3`
-file. The backup includes tasks, notes, groups, and preferences. Export keeps
-the active database in place.
+By default, Tabella stores your task list in
+`~/.local/share/Tabella/tasks.sqlite3`.
+On first launch after upgrading from Simple Todo, it copies your previous task
+list and leaves the original in place. To save a backup, choose **Settings →
+Export**; the export includes tasks, notes, groups, and preferences.
 
 ## Checks
 
