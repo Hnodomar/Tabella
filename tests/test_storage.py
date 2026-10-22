@@ -342,6 +342,19 @@ class StorageTests(unittest.TestCase):
         self.store.set_drag_handle_enabled(True)
         self.assertTrue(self.store.drag_handle_enabled())
 
+    def test_notes_resize_setting_is_validated_and_survives_restart(self):
+        self.assertTrue(self.store.notes_resize_enabled())
+        for invalid in (0, 1, "0", None):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                self.store.set_notes_resize_enabled(invalid)
+        self.store.set_notes_resize_enabled(False)
+        self.assertFalse(self.store.notes_resize_enabled())
+        self.store.close()
+        self.store = Store(self.path)
+        self.assertFalse(self.store.notes_resize_enabled())
+        self.store.set_notes_resize_enabled(True)
+        self.assertTrue(self.store.notes_resize_enabled())
+
 
 if __name__ == "__main__":
     unittest.main()
