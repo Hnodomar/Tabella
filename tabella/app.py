@@ -378,9 +378,10 @@ class TaskRow(Gtk.Box):
         if self.task is not None:
             self.title_entry.set_text(self.task.title)
             self.title_entry.remove_css_class("error")
-            self.window.flush()
-            self.title_entry.set_visible(False)
-            self.title_display.set_visible(True)
+            if self.title_entry.get_visible():
+                self.window.flush()
+                self.title_entry.set_visible(False)
+                self.title_display.set_visible(True)
 
     def body_changed(self, buffer):
         if self.loading or self.task is None:
@@ -397,7 +398,7 @@ class TaskRow(Gtk.Box):
         self.notes_editor.get_child().grab_focus()
 
     def notes_left(self, *_):
-        if self.task is not None:
+        if self.task is not None and self.notes_editor.get_visible():
             self.window.flush()
             self.notes_editor.set_visible(False)
             self.notes_display.set_visible(True)
@@ -480,6 +481,12 @@ class TabellaWindow(Gtk.ApplicationWindow):
         )
         self.visible_model = Gtk.FilterListModel.new(self.model, self.group_filter)
         self.connect("close-request", self.on_close)
+        click = Gtk.GestureClick()
+        click.set_button(0)
+        click.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        click.connect("pressed", self.on_window_press)
+        self.add_controller(click)
+        self.connect("notify::is-active", self.on_window_active_changed)
 
         header = Gtk.HeaderBar()
         header.add_css_class("compact-titlebar")
@@ -683,6 +690,34 @@ class TabellaWindow(Gtk.ApplicationWindow):
                 yield from visit(child)
                 child = child.get_next_sibling()
         return visit(self.list)
+
+    def on_window_press(self, _, __, x, y):
+        target = self.pick(x, y, Gtk.PickFlags.DEFAULT)
+        editors = []
+        for row in self.task_rows():
+            if row.task is None or row.details is None or not row.details.get_visible():
+                continue
+            for editor, finish in ((row.title_entry, row.title_left),
+                                   (row.notes_editor, row.notes_left)):
+                inside = (target is not None and
+                          (target is editor or target.is_ancestor(editor)))
+                if editor.get_visible() and not inside:
+                    editors.append((row, row.task, editor, finish))
+        if editors:
+            GLib.idle_add(self.dismiss_editors, editors)
+
+    def dismiss_editors(self, editors):
+        for row, task, editor, finish in editors:
+            if row.task is task and row.details is not None and editor.get_visible():
+                finish()
+        return GLib.SOURCE_REMOVE
+
+    def on_window_active_changed(self, *_):
+        if not self.get_property("is-active"):
+            for row in self.task_rows():
+                if row.task is not None and row.details is not None:
+                    row.title_left()
+                    row.notes_left()
 
     def add_group_check(self, group):
         check = Gtk.CheckButton(label=group["name"])

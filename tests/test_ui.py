@@ -465,6 +465,36 @@ class UiTests(unittest.TestCase):
         self.assertEqual(row.notes_display_label.get_text(), "Call the team")
         self.assertEqual(self.store.body(task.id), "Call the team")
 
+    def test_clicking_non_focusable_details_deselects_active_editor(self):
+        task, row = self.add_task("Plan the week")
+        row.expand.emit("clicked")
+        pump()
+        date = row.details.get_first_child()
+        bounds = date.compute_bounds(self.window)[1]
+        outside = (bounds.get_x() + bounds.get_width() / 2,
+                   bounds.get_y() + bounds.get_height() / 2)
+
+        row.title_display.emit("clicked")
+        row.title_entry.set_text("Updated plan")
+        pump()
+        bounds = row.title_entry.compute_bounds(self.window)[1]
+        self.window.on_window_press(None, 1, bounds.get_x() + 4, bounds.get_y() + 4)
+        pump()
+        self.assertTrue(row.title_entry.get_visible())
+        self.window.on_window_press(None, 1, *outside)
+        pump()
+        self.assertFalse(row.title_entry.get_visible())
+        self.assertTrue(row.title_display.get_visible())
+        self.assertEqual(self.store.list_tasks()[0]["title"], "Updated plan")
+
+        row.notes_display.emit("clicked")
+        row.body_buffer.set_text("Remember the meeting")
+        self.window.on_window_press(None, 1, *outside)
+        pump()
+        self.assertFalse(row.notes_editor.get_visible())
+        self.assertTrue(row.notes_display.get_visible())
+        self.assertEqual(self.store.body(task.id), "Remember the meeting")
+
     def test_export_button_saves_pending_notes_to_selected_backup(self):
         task, row = self.add_task("Back up this task")
         row.expand.emit("clicked")
