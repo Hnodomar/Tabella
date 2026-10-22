@@ -32,9 +32,8 @@ The default database is `~/.local/share/Tabella/tasks.sqlite3`. For a separate
 task list, run `./Tabella --database /absolute/path/to/work.sqlite`; Tabella
 creates the file if needed and opens another instance.
 
-On first launch after upgrading from Simple Todo, Tabella copies the old database
-and leaves it in place. Back up tasks, notes, groups, and preferences with
-**Settings → Export**.
+Tabella upgrades older databases automatically when opened. Back up your data
+with **Settings → Export**.
 
 ## Checks
 
