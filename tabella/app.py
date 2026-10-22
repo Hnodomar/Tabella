@@ -313,13 +313,14 @@ class TaskRow(Gtk.Box):
         text.set_left_margin(8)
         text.set_right_margin(8)
         text.update_property([Gtk.AccessibleProperty.LABEL], ["Notes"])
+        self.notes_view = text
         self.body_buffer = text.get_buffer()
         self.body_buffer.connect("changed", self.body_changed)
-        scroll = Gtk.ScrolledWindow(min_content_height=110, max_content_height=240)
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroll.set_has_frame(True)
-        scroll.set_child(text)
-        self.details.append(scroll)
+        self.notes_scroll = Gtk.ScrolledWindow(min_content_height=110, max_content_height=240)
+        self.notes_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.notes_scroll.set_has_frame(True)
+        self.notes_scroll.set_child(text)
+        self.details.append(self.notes_scroll)
         delete = Gtk.Button(label="Delete task", halign=Gtk.Align.START)
         delete.add_css_class("destructive-action")
         delete.connect("clicked", lambda *_: self.window.confirm_delete(self.task))
@@ -432,6 +433,12 @@ class TabellaWindow(Gtk.ApplicationWindow):
         )
         self.visible_model = Gtk.FilterListModel.new(self.model, self.group_filter)
         self.connect("close-request", self.on_close)
+        click = Gtk.GestureClick()
+        click.set_button(0)
+        click.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        click.connect("pressed", self.on_window_press)
+        self.add_controller(click)
+        self.connect("notify::is-active", self.on_window_active_changed)
 
         header = Gtk.HeaderBar()
         header.add_css_class("compact-titlebar")
@@ -635,6 +642,40 @@ class TabellaWindow(Gtk.ApplicationWindow):
                 yield from visit(child)
                 child = child.get_next_sibling()
         return visit(self.list)
+
+    def focused_text_box(self):
+        focused = self.get_focus()
+        if focused is None:
+            return None
+        for row in self.task_rows():
+            if row.task is None or row.details is None or not row.details.get_visible():
+                continue
+            for editor, area in ((row.title_entry, row.title_entry),
+                                 (row.notes_view, row.notes_scroll)):
+                if focused is editor or focused.is_ancestor(editor):
+                    return editor, area
+        return None
+
+    def on_window_press(self, _, __, x, y):
+        text_box = self.focused_text_box()
+        if text_box is None:
+            return
+        editor, area = text_box
+        target = self.pick(x, y, Gtk.PickFlags.DEFAULT)
+        if target is None or not (target is area or target.is_ancestor(area)):
+            GLib.idle_add(self.clear_text_focus, editor)
+
+    def clear_text_focus(self, editor):
+        focused = self.get_focus()
+        if focused is not None and (focused is editor or focused.is_ancestor(editor)):
+            self.set_focus(None)
+        return GLib.SOURCE_REMOVE
+
+    def on_window_active_changed(self, *_):
+        if not self.get_property("is-active"):
+            text_box = self.focused_text_box()
+            if text_box is not None:
+                self.clear_text_focus(text_box[0])
 
     def add_group_check(self, group):
         check = Gtk.CheckButton(label=group["name"])
