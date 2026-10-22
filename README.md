@@ -20,6 +20,17 @@ From this repository:
 Use `/usr/bin/python3 -m tabella` or `make run` as alternatives. Use the system
 Python; a virtual environment may not include Ubuntu's GTK bindings.
 
+To open a different SQLite database, pass its path:
+
+```sh
+./Tabella --database /absolute/path/to/work.sqlite
+```
+
+Tabella opens that file or creates it if it does not exist. An explicit database
+starts a separate app instance, so it can run alongside your default task list.
+Use an absolute path with the `Tabella` launcher because it changes to its
+installation directory before starting Python.
+
 Optional installation into your user's application menu:
 
 ```sh

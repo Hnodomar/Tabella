@@ -1,6 +1,8 @@
 """Native GTK 4 UI. No polling, web engine, or background service."""
 
+import argparse
 from datetime import datetime
+from pathlib import Path
 import sys
 
 import gi
@@ -956,9 +958,13 @@ class TabellaWindow(Gtk.ApplicationWindow):
 
 
 class TabellaApplication(Gtk.Application):
-    def __init__(self):
+    def __init__(self, database_path=None):
         # Gio routes subsequent launches to the existing process.
-        super().__init__(application_id=APP_ID)
+        # An explicit database needs its own process, even when Tabella is already open.
+        flags = (Gio.ApplicationFlags.NON_UNIQUE if database_path is not None
+                 else Gio.ApplicationFlags.FLAGS_NONE)
+        super().__init__(application_id=APP_ID, flags=flags)
+        self.database_path = database_path
         self.store = None
         self.exit_status = 0
 
@@ -971,7 +977,7 @@ class TabellaApplication(Gtk.Application):
         window = self.get_active_window()
         if window is None:
             try:
-                self.store = Store()
+                self.store = Store(self.database_path)
                 window = TabellaWindow(self, self.store)
             except Exception as error:
                 self.exit_status = 1
@@ -1004,7 +1010,12 @@ class TabellaApplication(Gtk.Application):
         Gtk.Application.do_shutdown(self)
 
 
-def main():
-    application = TabellaApplication()
-    result = application.run(sys.argv)
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="Tabella", description="A native desktop task list")
+    parser.add_argument("--database", metavar="PATH", type=Path,
+                        help="use the given SQLite database instead of the default")
+    options = parser.parse_args(argv)
+    database_path = options.database.expanduser().resolve() if options.database else None
+    application = TabellaApplication(database_path=database_path)
+    result = application.run([sys.argv[0]])
     return result or application.exit_status

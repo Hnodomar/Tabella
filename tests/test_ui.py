@@ -50,7 +50,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk
 
-from tabella.app import APP_ID, StatusItem, StatusRow, TabellaApplication, Task, TaskRow, TabellaWindow
+from tabella.app import APP_ID, StatusItem, StatusRow, TabellaApplication, Task, TaskRow, TabellaWindow, main
 from tabella.storage import Store
 
 
@@ -491,6 +491,36 @@ class UiTests(unittest.TestCase):
         application.set_flags(Gio.ApplicationFlags.NON_UNIQUE)
         application.register(None)
         self.assertEqual(GLib.get_prgname(), APP_ID)
+
+    def test_database_option_selects_an_independent_database(self):
+        chosen = Path(self.directory.name) / "chosen tasks.sqlite"
+        with patch("tabella.app.TabellaApplication") as application_type:
+            application_type.return_value.run.return_value = 0
+            application_type.return_value.exit_status = 0
+            self.assertEqual(main(["--database", str(chosen)]), 0)
+            application_type.assert_called_once_with(database_path=chosen)
+            application_type.return_value.run.assert_called_once()
+
+        alternate = TabellaApplication(database_path=chosen)
+        self.assertEqual(alternate.database_path, chosen)
+        self.assertTrue(alternate.get_flags() & Gio.ApplicationFlags.NON_UNIQUE)
+        with patch("tabella.app.Store", wraps=Store) as open_store, \
+                patch("tabella.app.TabellaWindow") as make_window:
+            alternate.do_activate()
+            open_store.assert_called_once_with(chosen)
+            make_window.assert_called_once_with(alternate, alternate.store)
+            self.assertEqual(alternate.store.path, chosen)
+            alternate.store.close()
+            alternate.store = None
+        default = TabellaApplication()
+        self.assertIsNone(default.database_path)
+        self.assertFalse(default.get_flags() & Gio.ApplicationFlags.NON_UNIQUE)
+
+        with patch("tabella.app.TabellaApplication") as application_type:
+            application_type.return_value.run.return_value = 0
+            application_type.return_value.exit_status = 0
+            self.assertEqual(main([]), 0)
+            application_type.assert_called_once_with(database_path=None)
 
     def test_dragging_rows_changes_and_saves_their_order(self):
         first, _ = self.add_task("First")
