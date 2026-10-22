@@ -17,13 +17,6 @@ Then run from this repository:
 ./Tabella
 ```
 
-To use a separate task list, pass an absolute database path. Tabella creates the
-file if needed and opens it in a separate instance:
-
-```sh
-./Tabella --database /absolute/path/to/work.sqlite
-```
-
 To add Tabella to your application menu:
 
 ```sh
@@ -33,13 +26,15 @@ make install
 Launch **Tabella** from the menu. Run `make install` again after updating the
 source.
 
-## Data and backups
+## Database and backups
 
-By default, Tabella stores your task list in
-`~/.local/share/Tabella/tasks.sqlite3`.
-On first launch after upgrading from Simple Todo, it copies your previous task
-list and leaves the original in place. To save a backup, choose **Settings →
-Export**; the export includes tasks, notes, groups, and preferences.
+The default database is `~/.local/share/Tabella/tasks.sqlite3`. For a separate
+task list, run `./Tabella --database /absolute/path/to/work.sqlite`; Tabella
+creates the file if needed and opens another instance.
+
+On first launch after upgrading from Simple Todo, Tabella copies the old database
+and leaves it in place. Back up tasks, notes, groups, and preferences with
+**Settings → Export**.
 
 ## Checks
 
