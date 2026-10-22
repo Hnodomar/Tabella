@@ -349,6 +349,50 @@ class UiTests(unittest.TestCase):
         self.assertEqual(self.store.body(task.id), "")
         self.assertFalse(self.window.pending)
 
+    def test_clicking_outside_original_text_boxes_clears_their_focus(self):
+        task, row = self.add_task("Focus test")
+        row.expand.emit("clicked")
+        pump()
+        date = row.details.get_first_child()
+        bounds = date.compute_bounds(self.window)[1]
+        outside = (bounds.get_x() + bounds.get_width() / 2,
+                   bounds.get_y() + bounds.get_height() / 2)
+
+        def focused_in(widget):
+            focused = self.window.get_focus()
+            return focused is not None and (focused is widget or focused.is_ancestor(widget))
+
+        row.title_entry.grab_focus()
+        row.title_entry.set_text("Updated title")
+        pump()
+        self.assertTrue(focused_in(row.title_entry))
+        bounds = row.title_entry.compute_bounds(self.window)[1]
+        self.window.on_window_press(None, 1, bounds.get_x() + 4, bounds.get_y() + 4)
+        pump()
+        self.assertTrue(focused_in(row.title_entry))
+        self.window.on_window_press(None, 1, *outside)
+        pump()
+        self.assertFalse(focused_in(row.title_entry))
+        self.assertTrue(row.title_entry.get_visible())
+        self.assertTrue(row.title_entry.get_has_frame())
+        self.assertEqual(self.store.list_tasks()[0]["title"], "Updated title")
+
+        row.notes_view.grab_focus()
+        row.body_buffer.set_text("Remember this")
+        pump()
+        self.assertTrue(focused_in(row.notes_view))
+        bounds = row.notes_scroll.compute_bounds(self.window)[1]
+        self.window.on_window_press(None, 1, bounds.get_x() + 20, bounds.get_y() + 20)
+        pump()
+        self.assertTrue(focused_in(row.notes_view))
+        self.window.on_window_press(None, 1, *outside)
+        pump()
+        self.assertFalse(focused_in(row.notes_view))
+        self.assertTrue(row.notes_scroll.get_visible())
+        self.assertTrue(row.notes_scroll.get_has_frame())
+        self.window.flush()
+        self.assertEqual(self.store.body(task.id), "Remember this")
+
     def test_titlebar_add_button_creates_and_focuses_an_editable_task(self):
         self.assertEqual(len(self.store.list_tasks()), 0)
         self.assertEqual(self.window.model.get_n_items(), 0)
