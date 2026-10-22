@@ -73,14 +73,6 @@ APP_CSS = b"""
     .task-row.drop-after {
         box-shadow: inset 0 -2px currentColor;
     }
-    .notes-resize-handle {
-        min-width: 20px;
-        min-height: 20px;
-        background: alpha(currentColor, 0.08);
-        border-right: 2px solid alpha(currentColor, 0.65);
-        border-bottom: 2px solid alpha(currentColor, 0.65);
-        border-radius: 2px;
-    }
 """
 
 
@@ -336,7 +328,7 @@ class TaskRow(Gtk.Box):
             halign=Gtk.Align.END, valign=Gtk.Align.END,
             visible=self.window.notes_resize_enabled,
         )
-        self.notes_resize_handle.add_css_class("notes-resize-handle")
+        self.notes_resize_handle.append(self.window.icon("resize-grip.svg"))
         self.notes_resize_handle.set_cursor_from_name("ns-resize")
         self.notes_resize_handle.set_tooltip_text("Drag to resize Notes height")
         self.notes_resize_handle.update_property(
@@ -355,16 +347,24 @@ class TaskRow(Gtk.Box):
         self.details.append(delete)
 
     def apply_notes_height(self, height):
-        self.notes_scroll.set_min_content_height(height if height is not None else 110)
-        self.notes_scroll.set_max_content_height(height if height is not None else 240)
+        minimum = height if height is not None else 110
+        maximum = height if height is not None else 240
+        if minimum > self.notes_scroll.get_max_content_height():
+            self.notes_scroll.set_max_content_height(maximum)
+        self.notes_scroll.set_min_content_height(minimum)
+        self.notes_scroll.set_max_content_height(maximum)
 
-    def begin_notes_resize(self, *_):
+    def begin_notes_resize(self, gesture, _x, _y):
         self.notes_resize_start_height = max(self.notes_scroll.get_height(), 110)
+        _, _, self.notes_resize_start_y = gesture.get_last_event(None).get_position()
 
-    def update_notes_resize(self, _gesture, _offset_x, offset_y):
+    def update_notes_resize(self, gesture, _offset_x, _offset_y):
         if self.task is None or not self.window.notes_resize_enabled:
             return
-        height = max(80, min(600, round(self.notes_resize_start_height + offset_y)))
+        _, _, pointer_y = gesture.get_last_event(None).get_position()
+        height = max(80, min(600, round(
+            self.notes_resize_start_height + pointer_y - self.notes_resize_start_y
+        )))
         self.task.notes_height = height
         self.apply_notes_height(height)
 
