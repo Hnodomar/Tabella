@@ -278,6 +278,8 @@ class UiTests(unittest.TestCase):
         self.assertTrue(row.notes_resize_handle.get_visible())
         self.assertIs(row.notes_resize_drag.get_widget(), row.notes_resize_handle)
         self.assertEqual(row.notes_resize_drag.get_button(), 1)
+        self.assertIsInstance(row.notes_resize_handle.get_first_child(), Gtk.Image)
+        self.assertTrue(self.window.icon_path("resize-grip.svg").is_file())
         _, grip_bounds = row.notes_resize_handle.compute_bounds(row.notes_scroll)
         self.assertAlmostEqual(grip_bounds.get_x() + grip_bounds.get_width(),
                                row.notes_scroll.get_width(), delta=1)
@@ -285,25 +287,46 @@ class UiTests(unittest.TestCase):
                                row.notes_scroll.get_height(), delta=1)
 
         width, height = row.notes_scroll.get_width(), row.notes_scroll.get_height()
-        row.begin_notes_resize()
-        row.update_notes_resize(None, 200, 80)
+        class Pointer:
+            y = 100
+
+            def get_last_event(self, _sequence):
+                return self
+
+            def get_position(self):
+                return True, 0, self.y
+
+        pointer = Pointer()
+        row.begin_notes_resize(pointer, 0, 0)
+        pointer.y = 250
+        row.update_notes_resize(pointer, 200, -999)
         pump()
         self.assertEqual(row.notes_scroll.get_width(), width)
-        self.assertEqual(row.notes_scroll.get_height(), height + 80)
-        self.assertEqual(task.notes_height, height + 80)
+        self.assertEqual(row.notes_scroll.get_height(), height + 150)
+        self.assertEqual(task.notes_height, height + 150)
+        self.assertEqual(row.notes_scroll.get_min_content_height(), height + 150)
+        self.assertEqual(row.notes_scroll.get_max_content_height(), height + 150)
+        pointer.y = 50
+        row.update_notes_resize(pointer, -200, 999)
+        pump()
+        self.assertEqual(row.notes_scroll.get_height(), 80)
+        pointer.y = 250
+        row.update_notes_resize(pointer, 200, -999)
+        pump()
+        self.assertEqual(row.notes_scroll.get_height(), height + 150)
         row.expand.emit("clicked")
         row.expand.emit("clicked")
         pump()
-        self.assertEqual(row.notes_scroll.get_height(), height + 80)
+        self.assertEqual(row.notes_scroll.get_height(), height + 150)
 
         self.window.notes_resize_check.set_active(False)
         pump()
         self.assertFalse(self.store.notes_resize_enabled())
         self.assertFalse(row.notes_resize_handle.get_visible())
-        row.begin_notes_resize()
-        row.update_notes_resize(None, 0, 40)
+        pointer.y = 220
+        row.update_notes_resize(pointer, 0, 40)
         pump()
-        self.assertEqual(row.notes_scroll.get_height(), height + 80)
+        self.assertEqual(row.notes_scroll.get_height(), height + 150)
 
         self.window.destroy()
         pump()
