@@ -3,6 +3,19 @@
 A lightweight native Ubuntu desktop task list using GTK 4, system Python, and
 SQLite. No pip dependencies, browser runtime, server, or network connection.
 
+![Screenshot](tabella/assets/Tabella-demo.png)
+
+### Features
+- Task tracking with titles, grouping, descriptions and completion statuses
+- Persistence for all task data and settings
+- Group visibility toggling
+- Dark mode
+- System theme opt-in/out
+- Row height resizing
+- Row re-ordering (via dragging)
+- Manual data back-up/exporting
+- 100% local storage
+
 ## Run
 
 On Ubuntu 22.04 or later, install the required packages if needed:
