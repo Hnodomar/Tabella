@@ -73,6 +73,14 @@ APP_CSS = b"""
     .task-row.drop-after {
         box-shadow: inset 0 -2px currentColor;
     }
+    .notes-resize-handle {
+        min-width: 20px;
+        min-height: 20px;
+        background: alpha(currentColor, 0.08);
+        border-right: 2px solid alpha(currentColor, 0.65);
+        border-bottom: 2px solid alpha(currentColor, 0.65);
+        border-radius: 2px;
+    }
 """
 
 
@@ -95,6 +103,7 @@ class Task(GObject.Object):
         self.body = None
         self.expanded = False
         self.focus_title = False
+        self.notes_height = None
 
 
 class StatusItem(GObject.Object):
@@ -275,6 +284,7 @@ class TaskRow(Gtk.Box):
             self.build_details()
         self.title_entry.set_text(self.task.title)
         self.body_buffer.set_text(self.task.body)
+        self.apply_notes_height(self.task.notes_height)
         self.refresh_group_checks()
         self.loading = False
         self.details.set_visible(True)
@@ -320,11 +330,43 @@ class TaskRow(Gtk.Box):
         self.notes_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.notes_scroll.set_has_frame(True)
         self.notes_scroll.set_child(text)
-        self.details.append(self.notes_scroll)
+        notes_overlay = Gtk.Overlay()
+        notes_overlay.set_child(self.notes_scroll)
+        self.notes_resize_handle = Gtk.Box(
+            halign=Gtk.Align.END, valign=Gtk.Align.END,
+            visible=self.window.notes_resize_enabled,
+        )
+        self.notes_resize_handle.add_css_class("notes-resize-handle")
+        self.notes_resize_handle.set_cursor_from_name("ns-resize")
+        self.notes_resize_handle.set_tooltip_text("Drag to resize Notes height")
+        self.notes_resize_handle.update_property(
+            [Gtk.AccessibleProperty.LABEL], ["Resize Notes height"]
+        )
+        self.notes_resize_drag = Gtk.GestureDrag()
+        self.notes_resize_drag.set_button(1)
+        self.notes_resize_drag.connect("drag-begin", self.begin_notes_resize)
+        self.notes_resize_drag.connect("drag-update", self.update_notes_resize)
+        self.notes_resize_handle.add_controller(self.notes_resize_drag)
+        notes_overlay.add_overlay(self.notes_resize_handle)
+        self.details.append(notes_overlay)
         delete = Gtk.Button(label="Delete task", halign=Gtk.Align.START)
         delete.add_css_class("destructive-action")
         delete.connect("clicked", lambda *_: self.window.confirm_delete(self.task))
         self.details.append(delete)
+
+    def apply_notes_height(self, height):
+        self.notes_scroll.set_min_content_height(height if height is not None else 110)
+        self.notes_scroll.set_max_content_height(height if height is not None else 240)
+
+    def begin_notes_resize(self, *_):
+        self.notes_resize_start_height = max(self.notes_scroll.get_height(), 110)
+
+    def update_notes_resize(self, _gesture, _offset_x, offset_y):
+        if self.task is None or not self.window.notes_resize_enabled:
+            return
+        height = max(80, min(600, round(self.notes_resize_start_height + offset_y)))
+        self.task.notes_height = height
+        self.apply_notes_height(height)
 
     def title_changed(self, entry):
         if self.loading or self.task is None:
@@ -422,6 +464,7 @@ class TabellaWindow(Gtk.ApplicationWindow):
         self.use_ubuntu_theme = store.ubuntu_theme_enabled()
         self.row_spacing_percent = store.row_spacing_percent()
         self.drag_handle_enabled = store.drag_handle_enabled()
+        self.notes_resize_enabled = store.notes_resize_enabled()
         self.groups = [dict(row) for row in store.list_groups()]
         self.selected_groups = {group["id"] for group in self.groups if group["selected"]}
         self._applying_appearance = False
@@ -513,6 +556,12 @@ class TabellaWindow(Gtk.ApplicationWindow):
             "toggled", self.toggle_drag_handle
         )
         settings_menu.append(self.drag_handle_check)
+        self.notes_resize_check = Gtk.CheckButton(label="Resize Notes height")
+        self.notes_resize_check.set_active(self.notes_resize_enabled)
+        self._notes_resize_handler = self.notes_resize_check.connect(
+            "toggled", self.toggle_notes_resize
+        )
+        settings_menu.append(self.notes_resize_check)
         settings_menu.append(Gtk.Label(label="Row spacing (%)", xalign=0))
         self.row_spacing_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 40, 100, 1)
         self.row_spacing_scale.set_digits(0)
@@ -632,6 +681,24 @@ class TabellaWindow(Gtk.ApplicationWindow):
         while child is not None:
             self.apply_drag_handle_visibility(child)
             child = child.get_next_sibling()
+
+    def toggle_notes_resize(self, button):
+        enabled = button.get_active()
+        if enabled == self.notes_resize_enabled:
+            return
+        try:
+            self.store.set_notes_resize_enabled(enabled)
+        except Exception as error:
+            button.handler_block(self._notes_resize_handler)
+            button.set_active(self.notes_resize_enabled)
+            button.handler_unblock(self._notes_resize_handler)
+            self.report_error(error)
+            return
+        self.notes_resize_enabled = enabled
+        for row in self.task_rows():
+            if row.details is not None:
+                row.notes_resize_handle.set_visible(enabled)
+        self.update_message(clear_error=True)
 
     def task_rows(self):
         def visit(widget):

@@ -245,6 +245,22 @@ class Store:
                 ("1" if enabled else "0",),
             )
 
+    def notes_resize_enabled(self):
+        row = self.db.execute(
+            "SELECT value FROM preferences WHERE key = 'notes_resize_enabled'"
+        ).fetchone()
+        return row is None or row["value"] == "1"
+
+    def set_notes_resize_enabled(self, enabled):
+        if type(enabled) is not bool:
+            raise ValueError("Notes resize setting must be a boolean.")
+        with self.db:
+            self.db.execute(
+                "INSERT INTO preferences (key, value) VALUES ('notes_resize_enabled', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                ("1" if enabled else "0",),
+            )
+
     def set_appearance(self, mode, use_ubuntu_theme):
         if mode not in ("light", "dark") or type(use_ubuntu_theme) is not bool:
             raise ValueError("Invalid appearance settings.")

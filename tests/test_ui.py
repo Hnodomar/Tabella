@@ -266,6 +266,68 @@ class UiTests(unittest.TestCase):
         self.assertTrue(self.store.drag_handle_enabled())
         self.assertIn("disk is full", self.window.message.get_text())
 
+    def test_notes_resize_changes_only_height_and_setting_persists(self):
+        task, row = self.add_task()
+        row.expand.emit("clicked")
+        pump()
+        self.assertEqual(self.window.notes_resize_check.get_label(), "Resize Notes height")
+        self.assertIs(self.window.drag_handle_check.get_next_sibling(),
+                      self.window.notes_resize_check)
+        self.assertIsInstance(self.window.notes_resize_check.get_next_sibling(), Gtk.Label)
+        self.assertTrue(self.window.notes_resize_check.get_active())
+        self.assertTrue(row.notes_resize_handle.get_visible())
+        self.assertIs(row.notes_resize_drag.get_widget(), row.notes_resize_handle)
+        self.assertEqual(row.notes_resize_drag.get_button(), 1)
+        _, grip_bounds = row.notes_resize_handle.compute_bounds(row.notes_scroll)
+        self.assertAlmostEqual(grip_bounds.get_x() + grip_bounds.get_width(),
+                               row.notes_scroll.get_width(), delta=1)
+        self.assertAlmostEqual(grip_bounds.get_y() + grip_bounds.get_height(),
+                               row.notes_scroll.get_height(), delta=1)
+
+        width, height = row.notes_scroll.get_width(), row.notes_scroll.get_height()
+        row.begin_notes_resize()
+        row.update_notes_resize(None, 200, 80)
+        pump()
+        self.assertEqual(row.notes_scroll.get_width(), width)
+        self.assertEqual(row.notes_scroll.get_height(), height + 80)
+        self.assertEqual(task.notes_height, height + 80)
+        row.expand.emit("clicked")
+        row.expand.emit("clicked")
+        pump()
+        self.assertEqual(row.notes_scroll.get_height(), height + 80)
+
+        self.window.notes_resize_check.set_active(False)
+        pump()
+        self.assertFalse(self.store.notes_resize_enabled())
+        self.assertFalse(row.notes_resize_handle.get_visible())
+        row.begin_notes_resize()
+        row.update_notes_resize(None, 0, 40)
+        pump()
+        self.assertEqual(row.notes_scroll.get_height(), height + 80)
+
+        self.window.destroy()
+        pump()
+        self.window = TabellaWindow(self.application, self.store)
+        self.window.present()
+        pump()
+        restored_row = next(w for w in descendants(self.window.list)
+                            if isinstance(w, TaskRow) and w.task is not None)
+        restored_row.expand.emit("clicked")
+        pump()
+        self.assertFalse(self.window.notes_resize_check.get_active())
+        self.assertFalse(restored_row.notes_resize_handle.get_visible())
+
+    def test_notes_resize_toggle_recovers_from_save_failure(self):
+        _, row = self.add_task()
+        row.expand.emit("clicked")
+        with patch.object(self.store, "set_notes_resize_enabled",
+                          side_effect=sqlite3.OperationalError("disk is full")):
+            self.window.notes_resize_check.set_active(False)
+        self.assertTrue(self.window.notes_resize_check.get_active())
+        self.assertTrue(row.notes_resize_handle.get_visible())
+        self.assertTrue(self.store.notes_resize_enabled())
+        self.assertIn("disk is full", self.window.message.get_text())
+
     def test_row_spacing_slider_updates_rows_and_persists(self):
         self.assertEqual(self.window.row_spacing_scale.get_value(), 100)
         task, row = self.add_task()
