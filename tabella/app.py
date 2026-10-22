@@ -88,7 +88,7 @@ class Task(GObject.Object):
         self.id = record["id"]
         self.title = record["title"]
         self.status = record["status"]
-        self.group_id = record["group_id"]
+        self.group_ids = set(record["group_ids"])
         self.created_at = record["created_at"]
         self.body = None
         self.expanded = False
@@ -268,12 +268,12 @@ class TaskRow(Gtk.Box):
         except Exception as error:
             self.window.report_error(error)
             return False
+        self.loading = True
         if self.details is None:
             self.build_details()
-        self.loading = True
         self.title_entry.set_text(self.task.title)
         self.body_buffer.set_text(self.task.body)
-        self.group_dropdown.set_selected(self.window.group_index(self.task.group_id))
+        self.refresh_group_checks()
         self.loading = False
         self.details.set_visible(True)
         return True
@@ -294,10 +294,15 @@ class TaskRow(Gtk.Box):
         focus.connect("leave", self.title_left)
         self.title_entry.add_controller(focus)
         self.details.append(self.title_entry)
-        self.details.append(Gtk.Label(label="Group", xalign=0))
-        self.group_dropdown = Gtk.DropDown(model=self.window.group_names)
-        self.group_dropdown.update_property([Gtk.AccessibleProperty.LABEL], ["Task group"])
-        self.group_dropdown.connect("notify::selected", self.group_changed)
+        self.details.append(Gtk.Label(label="Groups", xalign=0))
+        self.group_dropdown = Gtk.MenuButton(label="No group")
+        self.group_dropdown.update_property([Gtk.AccessibleProperty.LABEL], ["Task groups"])
+        self.group_menu = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.group_checks = {}
+        self.refresh_group_checks()
+        group_popover = Gtk.Popover()
+        group_popover.set_child(margins(self.group_menu, 8))
+        self.group_dropdown.set_popover(group_popover)
         self.details.append(self.group_dropdown)
         self.details.append(Gtk.Label(label="Notes", xalign=0))
         text = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR)
@@ -347,15 +352,42 @@ class TaskRow(Gtk.Box):
             self.task.body = body
             self.window.queue_edit(self.task, body=body)
 
-    def group_changed(self, dropdown, *_):
+    def refresh_group_checks(self):
+        for group in self.window.groups:
+            if group["id"] not in self.group_checks:
+                check = Gtk.CheckButton(label=group["name"])
+                check.connect("toggled", self.group_changed, group["id"])
+                self.group_checks[group["id"]] = check
+                self.group_menu.append(check)
+        for group_id, check in self.group_checks.items():
+            check.set_active(group_id in self.task.group_ids if group_id else not self.task.group_ids)
+        names = [group["name"] for group in self.window.groups
+                 if group["id"] in self.task.group_ids]
+        self.group_dropdown.set_label(", ".join(names) if names else "No group")
+
+    def group_changed(self, check, group_id):
         if self.loading or self.task is None:
             return
-        group_id = self.window.group_ids[dropdown.get_selected()]
-        if group_id != self.task.group_id:
-            if not self.window.change_task_group(self.task, group_id):
+        group_ids = set(self.task.group_ids)
+        if group_id == 0:
+            if check.get_active():
+                group_ids.clear()
+            else:
                 self.loading = True
-                dropdown.set_selected(self.window.group_index(self.task.group_id))
+                self.refresh_group_checks()
                 self.loading = False
+                return
+        elif check.get_active():
+            group_ids.add(group_id)
+        else:
+            group_ids.discard(group_id)
+        task = self.task
+        if group_ids != task.group_ids:
+            self.window.change_task_groups(task, group_ids)
+        if self.task is task and self.details is not None:
+            self.loading = True
+            self.refresh_group_checks()
+            self.loading = False
 
     def cycle_status(self, *_):
         status = (self.task.status + 1) % 3
@@ -388,14 +420,13 @@ class TabellaWindow(Gtk.ApplicationWindow):
         self.row_spacing_percent = store.row_spacing_percent()
         self.drag_handle_enabled = store.drag_handle_enabled()
         self.groups = [dict(row) for row in store.list_groups()]
-        self.group_ids = [group["id"] for group in self.groups]
-        self.group_names = Gtk.StringList.new([group["name"] for group in self.groups])
         self.selected_groups = {group["id"] for group in self.groups if group["selected"]}
         self._applying_appearance = False
         self.model = Gio.ListStore.new(GObject.Object)
         self.model.splice(0, 0, [Task(record) for record in store.list_tasks()])
         self.group_filter = Gtk.CustomFilter.new(
-            lambda task: task.group_id in self.selected_groups
+            lambda task: bool(task.group_ids & self.selected_groups)
+            or (not task.group_ids and 0 in self.selected_groups)
         )
         self.visible_model = Gtk.FilterListModel.new(self.model, self.group_filter)
         self.connect("close-request", self.on_close)
@@ -593,8 +624,15 @@ class TabellaWindow(Gtk.ApplicationWindow):
             self.apply_drag_handle_visibility(child)
             child = child.get_next_sibling()
 
-    def group_index(self, group_id):
-        return self.group_ids.index(group_id)
+    def task_rows(self):
+        def visit(widget):
+            if isinstance(widget, TaskRow):
+                yield widget
+            child = widget.get_first_child()
+            while child is not None:
+                yield from visit(child)
+                child = child.get_next_sibling()
+        return visit(self.list)
 
     def add_group_check(self, group):
         check = Gtk.CheckButton(label=group["name"])
@@ -647,25 +685,33 @@ class TabellaWindow(Gtk.ApplicationWindow):
                 self.report_error(error)
                 return
             self.groups.append(group)
-            self.group_ids.append(group["id"])
-            self.group_names.append(group["name"])
             self.selected_groups.add(group["id"])
             self.add_group_check(group)
+            for task_row in self.task_rows():
+                if task_row.details is not None:
+                    task_row.loading = True
+                    task_row.refresh_group_checks()
+                    task_row.loading = False
             self.update_message(clear_error=True)
 
         dialog.connect("response", response)
         dialog.present()
         entry.grab_focus()
 
-    def change_task_group(self, task, group_id):
+    def change_task_groups(self, task, group_ids):
         if not self.flush():
             return False
         try:
-            self.store.update(task.id, group_id=group_id)
+            self.store.update(task.id, group_ids=group_ids)
         except Exception as error:
             self.report_error(error)
             return False
-        task.group_id = group_id
+        task.group_ids = set(group_ids)
+        for task_row in self.task_rows():
+            if task_row.task is task and task_row.details is not None:
+                task_row.loading = True
+                task_row.refresh_group_checks()
+                task_row.loading = False
         self.group_filter.changed(Gtk.FilterChange.DIFFERENT)
         self.update_message(clear_error=True)
         return True

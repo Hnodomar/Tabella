@@ -56,7 +56,7 @@ class Store:
             self.db.execute("PRAGMA journal_mode = WAL")
             self.db.execute("PRAGMA synchronous = FULL")
             version = self.db.execute("PRAGMA user_version").fetchone()[0]
-            if version > 3:
+            if version > 4:
                 raise RuntimeError("This task database was created by a newer version of the app.")
             with self.db:
                 self.db.execute("""
@@ -136,18 +136,40 @@ class Store:
                         "ALTER TABLE tasks ADD COLUMN group_id INTEGER NOT NULL DEFAULT 0"
                     )
                     self.db.execute("PRAGMA user_version = 3")
+                self.db.execute("""
+                    CREATE TABLE IF NOT EXISTS task_groups (
+                        task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                        group_id INTEGER NOT NULL REFERENCES groups(id),
+                        PRIMARY KEY (task_id, group_id)
+                    )
+                """)
+                if version < 4:
+                    self.db.execute(
+                        "INSERT INTO task_groups (task_id, group_id) "
+                        "SELECT id, group_id FROM tasks WHERE group_id != 0"
+                    )
+                    self.db.execute("PRAGMA user_version = 4")
                 self.db.execute(
                     "CREATE INDEX IF NOT EXISTS tasks_sort_order_idx ON tasks(sort_order, id DESC)"
                 )
+            self.db.execute("PRAGMA foreign_keys = ON")
         except Exception:
             self.db.close()
             raise
 
     def list_tasks(self):
         # Bodies may be large; read them only when a row is expanded.
-        return self.db.execute(
-            "SELECT id, title, status, created_at, group_id FROM tasks ORDER BY sort_order, id DESC"
-        ).fetchall()
+        rows = [dict(row) for row in self.db.execute(
+            "SELECT id, title, status, created_at FROM tasks ORDER BY sort_order, id DESC"
+        )]
+        memberships = {}
+        for task_id, group_id in self.db.execute(
+            "SELECT task_id, group_id FROM task_groups ORDER BY group_id"
+        ):
+            memberships.setdefault(task_id, []).append(group_id)
+        for row in rows:
+            row["group_ids"] = tuple(memberships.get(row["id"], ()))
+        return rows
 
     def list_groups(self):
         return self.db.execute(
@@ -245,7 +267,7 @@ class Store:
                 (title, created_at),
             )
         return dict(id=cursor.lastrowid, title=title, status=0,
-                    created_at=created_at, group_id=0)
+                    created_at=created_at, group_ids=())
 
     def move(self, task_id, position):
         """Move a task to a zero-based position in the saved task list."""
@@ -272,7 +294,7 @@ class Store:
             )
 
     def update(self, task_id, **fields):
-        if not fields or fields.keys() - {"title", "body", "status", "group_id"}:
+        if not fields or fields.keys() - {"title", "body", "status", "group_ids"}:
             raise ValueError("Invalid task fields.")
         if "title" in fields:
             fields["title"] = fields["title"].strip()
@@ -280,20 +302,34 @@ class Store:
                 raise ValueError("A title is required.")
         if "status" in fields and (type(fields["status"]) is not int or fields["status"] not in range(3)):
             raise ValueError("Invalid status.")
-        if "group_id" in fields:
-            group_id = fields["group_id"]
-            if type(group_id) is not int or self.db.execute(
-                "SELECT 1 FROM groups WHERE id = ?", (group_id,)
-            ).fetchone() is None:
-                raise ValueError("Invalid group.")
+        has_group_ids = "group_ids" in fields
+        group_ids = fields.pop("group_ids", None)
+        if has_group_ids:
+            if not isinstance(group_ids, (list, tuple, set, frozenset)) or any(
+                type(group_id) is not int or group_id <= 0 for group_id in group_ids
+            ) or len(group_ids) != len(set(group_ids)):
+                raise ValueError("Invalid groups.")
+            group_ids = tuple(sorted(group_ids))
+            if group_ids and self.db.execute(
+                f"SELECT COUNT(*) FROM groups WHERE id IN ({','.join('?' for _ in group_ids)})",
+                group_ids,
+            ).fetchone()[0] != len(group_ids):
+                raise ValueError("Invalid groups.")
         # Column names come only from the allowlist above; values are parameters.
         assignments = ", ".join(f"{field} = ?" for field in fields)
         with self.db:
-            cursor = self.db.execute(
-                f"UPDATE tasks SET {assignments} WHERE id = ?", (*fields.values(), task_id)
-            )
-            if cursor.rowcount != 1:
+            if self.db.execute("SELECT 1 FROM tasks WHERE id = ?", (task_id,)).fetchone() is None:
                 raise LookupError("Task no longer exists.")
+            if fields:
+                self.db.execute(
+                    f"UPDATE tasks SET {assignments} WHERE id = ?", (*fields.values(), task_id)
+                )
+            if has_group_ids:
+                self.db.execute("DELETE FROM task_groups WHERE task_id = ?", (task_id,))
+                self.db.executemany(
+                    "INSERT INTO task_groups (task_id, group_id) VALUES (?, ?)",
+                    ((task_id, group_id) for group_id in group_ids),
+                )
 
     def delete(self, task_id):
         with self.db:
