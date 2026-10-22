@@ -3,6 +3,8 @@
 A lightweight native Ubuntu desktop task list using GTK 4, system Python, and
 SQLite. No pip dependencies, browser runtime, server, or network connection.
 
+Created for my personal use, but easy for anyone else to use it too.
+
 ![Screenshot](tabella/assets/Tabella-demo.png)
 
 ### Features
