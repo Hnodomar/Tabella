@@ -499,7 +499,7 @@ class TabellaWindow(Gtk.ApplicationWindow):
         group_control.add_css_class("group-control")
         self.group_button = Gtk.MenuButton()
         self.group_button.set_has_frame(False)
-        self.group_button.set_child(self.icon("groups.svg"))
+        self.group_button.set_child(self.icon("filter.svg"))
         self.group_button.set_tooltip_text("Choose visible groups")
         self.group_button.update_property(
             [Gtk.AccessibleProperty.LABEL], ["Choose visible groups"]
