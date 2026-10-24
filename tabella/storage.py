@@ -309,6 +309,21 @@ class Store:
                  for index in range(first, last + 1)),
             )
 
+    def sort_by_status(self, descending=False):
+        """Save status order, preserving the current order within each status."""
+        if type(descending) is not bool:
+            raise ValueError("Sort direction must be a boolean.")
+        direction = "DESC" if descending else "ASC"
+        ids = [row["id"] for row in self.db.execute(
+            f"SELECT id FROM tasks ORDER BY status {direction}, sort_order, id DESC"
+        )]
+        with self.db:
+            self.db.executemany(
+                "UPDATE tasks SET sort_order = ? WHERE id = ?",
+                enumerate(ids),
+            )
+        return ids
+
     def update(self, task_id, **fields):
         if not fields or fields.keys() - {"title", "body", "status", "group_ids"}:
             raise ValueError("Invalid task fields.")

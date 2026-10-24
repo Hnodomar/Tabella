@@ -94,6 +94,37 @@ class StorageTests(unittest.TestCase):
             [first["id"], third["id"], second["id"]],
         )
 
+    def test_status_sort_toggles_direction_stably_and_persists(self):
+        tasks = [self.store.add(str(index)) for index in range(5)]
+        for task, status in zip(tasks, (2, 0, 1, 0, 2)):
+            self.store.update(task["id"], status=status)
+        original = [row["id"] for row in self.store.list_tasks()]
+        statuses = {task["id"]: status for task, status in
+                    zip(tasks, (2, 0, 1, 0, 2))}
+        for descending in (False, True):
+            expected = sorted(original, key=lambda task_id: statuses[task_id],
+                              reverse=descending)
+            self.assertEqual(self.store.sort_by_status(descending), expected)
+            self.assertEqual([row["id"] for row in self.store.list_tasks()], expected)
+            self.store.close()
+            self.store = Store(self.path)
+            self.assertEqual([row["id"] for row in self.store.list_tasks()], expected)
+        with self.assertRaises(ValueError):
+            self.store.sort_by_status("descending")
+
+    def test_status_sort_rolls_back_when_saving_order_fails(self):
+        tasks = [self.store.add(str(index)) for index in range(3)]
+        self.store.update(tasks[0]["id"], status=2)
+        original = [row["id"] for row in self.store.list_tasks()]
+        self.store.db.execute(f"""
+            CREATE TEMP TRIGGER block_status_sort BEFORE UPDATE OF sort_order ON tasks
+            WHEN NEW.id = {tasks[1]['id']}
+            BEGIN SELECT RAISE(ABORT, 'blocked'); END
+        """)
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.store.sort_by_status()
+        self.assertEqual([row["id"] for row in self.store.list_tasks()], original)
+
     def test_existing_database_migrates_without_changing_task_order(self):
         old_path = Path(self.directory.name) / "old.sqlite3"
         with sqlite3.connect(old_path) as db:
