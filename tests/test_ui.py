@@ -181,7 +181,7 @@ class UiTests(unittest.TestCase):
         gaps = [bounds[index + 1].get_x() - bounds[index].get_x()
                 - bounds[index].get_width() for index in range(2)]
         self.assertAlmostEqual(gaps[0], gaps[1], delta=1)
-        for button, icon_name in ((self.window.group_button, "groups.svg"),
+        for button, icon_name in ((self.window.group_button, "filter.svg"),
                                   (self.window.add_group_button, "add.svg")):
             self.assertFalse(button.get_has_frame())
             self.assertIsInstance(button.get_child(), Gtk.Image)
