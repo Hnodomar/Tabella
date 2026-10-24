@@ -159,7 +159,8 @@ class UiTests(unittest.TestCase):
         self.assertEqual(self.window.get_title(), "Tabella")
         self.assertGreater(header.get_height(), 0)
         self.assertLess(header.get_height(), 36)
-        for control in (self.window.add_button, self.window.theme_button,
+        for control in (self.window.add_button, self.window.sort_button,
+                        self.window.theme_button,
                         self.window.settings_button):
             self.assertGreater(control.get_height(), 0)
             self.assertLessEqual(control.get_height(), header.get_height())
@@ -167,6 +168,32 @@ class UiTests(unittest.TestCase):
         _, theme_bounds = self.window.theme_button.compute_bounds(header)
         self.assertLess(add_bounds.get_x(), header.get_width() / 2)
         self.assertGreater(theme_bounds.get_x(), header.get_width() / 2)
+        _, sort_bounds = self.window.sort_button.compute_bounds(header)
+        self.assertLess(sort_bounds.get_x(), theme_bounds.get_x())
+        self.assertEqual(self.window.sort_button.get_child().get_icon_size(),
+                         self.window.theme_button.get_child().get_icon_size())
+
+    def test_sort_button_toggles_status_order_and_preserves_rows_on_failure(self):
+        tasks = [self.add_task(str(index))[0] for index in range(5)]
+        for task, status in zip(tasks, (2, 0, 1, 0, 2)):
+            self.store.update(task.id, status=status)
+            task.status = status
+            task.emit("changed")
+        self.assertTrue(self.window.icon_path("sort-arrows.svg").is_file())
+        self.assertIn("to-do first", self.window.sort_button.get_tooltip_text())
+        self.window.sort_button.emit("clicked")
+        self.assertEqual([task.status for task in self.window.model], [0, 0, 1, 2, 2])
+        self.assertEqual([task.id for task in self.window.model],
+                         [row["id"] for row in self.store.list_tasks()])
+        self.assertIn("completed first", self.window.sort_button.get_tooltip_text())
+        self.window.sort_button.emit("clicked")
+        self.assertEqual([task.status for task in self.window.model], [2, 2, 1, 0, 0])
+        ordered = [task.id for task in self.window.model]
+        with patch.object(self.store, "sort_by_status", side_effect=sqlite3.OperationalError("disk is full")):
+            self.window.sort_button.emit("clicked")
+        self.assertEqual([task.id for task in self.window.model], ordered)
+        self.assertIn("disk is full", self.window.message.get_text())
+        self.assertIn("to-do first", self.window.sort_button.get_tooltip_text())
 
     def test_group_controls_use_matching_unframed_titlebar_icons(self):
         controls = self.window.group_button.get_parent()

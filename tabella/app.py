@@ -465,6 +465,7 @@ class TabellaWindow(Gtk.ApplicationWindow):
         self.row_spacing_percent = store.row_spacing_percent()
         self.drag_handle_enabled = store.drag_handle_enabled()
         self.notes_resize_enabled = store.notes_resize_enabled()
+        self.status_sort_descending = False
         self.groups = [dict(row) for row in store.list_groups()]
         self.selected_groups = {group["id"] for group in self.groups if group["selected"]}
         self._applying_appearance = False
@@ -526,6 +527,11 @@ class TabellaWindow(Gtk.ApplicationWindow):
         self.theme_button.add_css_class("flat")
         self.theme_button.set_child(self.icon("sun.svg"))
         self.theme_button.connect("clicked", self.toggle_internal_theme)
+        self.sort_button = Gtk.Button()
+        self.sort_button.add_css_class("flat")
+        self.sort_button.set_child(self.icon("sort-arrows.svg"))
+        self.sort_button.connect("clicked", self.toggle_status_sort)
+        self.refresh_sort_button()
 
         self.settings_button = Gtk.MenuButton()
         self.settings_button.set_has_frame(False)
@@ -581,6 +587,7 @@ class TabellaWindow(Gtk.ApplicationWindow):
         self.settings_button.set_popover(popover)
         header.pack_end(self.settings_button)
         header.pack_end(self.theme_button)
+        header.pack_end(self.sort_button)
         self.set_titlebar(header)
         self.settings.connect(
             "notify::gtk-application-prefer-dark-theme", self.on_system_theme_changed
@@ -951,6 +958,26 @@ class TabellaWindow(Gtk.ApplicationWindow):
         self.model.insert(destination, source)
         self.update_message(clear_error=True)
         return True
+
+    def refresh_sort_button(self):
+        direction = "completed first" if self.status_sort_descending else "to-do first"
+        label = f"Sort tasks by status ({direction})"
+        self.sort_button.set_tooltip_text(label)
+        self.sort_button.update_property([Gtk.AccessibleProperty.LABEL], [label])
+
+    def toggle_status_sort(self, *_):
+        if not self.flush():
+            return
+        try:
+            ids = self.store.sort_by_status(self.status_sort_descending)
+        except Exception as error:
+            self.report_error(error)
+            return
+        tasks = {task.id: task for task in self.model}
+        self.model.splice(0, self.model.get_n_items(), [tasks[id] for id in ids])
+        self.status_sort_descending = not self.status_sort_descending
+        self.refresh_sort_button()
+        self.update_message(clear_error=True)
 
     def queue_edit(self, task, **fields):
         self.pending.setdefault(task.id, {}).update(fields)
