@@ -515,7 +515,7 @@ class TabellaWindow(Gtk.ApplicationWindow):
         group_control.append(self.group_button)
         self.add_group_button = Gtk.Button()
         self.add_group_button.set_has_frame(False)
-        self.add_group_button.set_child(self.icon("add.svg"))
+        self.add_group_button.set_child(self.icon("add-group.svg"))
         self.add_group_button.set_tooltip_text("Add a group")
         self.add_group_button.update_property(
             [Gtk.AccessibleProperty.LABEL], ["Add a group"]
