@@ -56,7 +56,7 @@ class Store:
             self.db.execute("PRAGMA journal_mode = WAL")
             self.db.execute("PRAGMA synchronous = FULL")
             version = self.db.execute("PRAGMA user_version").fetchone()[0]
-            if version > 4:
+            if version > 5:
                 raise RuntimeError("This task database was created by a newer version of the app.")
             with self.db:
                 self.db.execute("""
@@ -128,9 +128,6 @@ class Store:
                         selected INTEGER NOT NULL DEFAULT 1 CHECK(selected IN (0, 1))
                     )
                 """)
-                self.db.execute(
-                    "INSERT OR IGNORE INTO groups (id, name) VALUES (0, 'No group')"
-                )
                 if version < 3:
                     self.db.execute(
                         "ALTER TABLE tasks ADD COLUMN group_id INTEGER NOT NULL DEFAULT 0"
@@ -149,6 +146,20 @@ class Store:
                         "SELECT id, group_id FROM tasks WHERE group_id != 0"
                     )
                     self.db.execute("PRAGMA user_version = 4")
+                if version < 5:
+                    self.db.execute(
+                        "INSERT OR IGNORE INTO groups (name) VALUES ('General')"
+                    )
+                    general_id = self.db.execute(
+                        "SELECT id FROM groups WHERE name = 'General'"
+                    ).fetchone()[0]
+                    self.db.execute(
+                        "INSERT INTO task_groups (task_id, group_id) "
+                        "SELECT id, ? FROM tasks WHERE id NOT IN "
+                        "(SELECT task_id FROM task_groups)", (general_id,)
+                    )
+                    self.db.execute("DELETE FROM groups WHERE id = 0")
+                    self.db.execute("PRAGMA user_version = 5")
                 self.db.execute(
                     "CREATE INDEX IF NOT EXISTS tasks_sort_order_idx ON tasks(sort_order, id DESC)"
                 )
@@ -271,10 +282,13 @@ class Store:
                 (("internal_theme", mode), ("ubuntu_theme", "1" if use_ubuntu_theme else "0")),
             )
 
-    def add(self, title):
+    def add(self, title, group_ids):
+        if not isinstance(title, str):
+            raise ValueError("A title is required.")
         title = title.strip()
         if not title:
             raise ValueError("A title is required.")
+        group_ids = self._valid_group_ids(group_ids)
         created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with self.db:
             cursor = self.db.execute(
@@ -282,8 +296,25 @@ class Store:
                 "VALUES (?, ?, COALESCE((SELECT MIN(sort_order) - 1 FROM tasks), 0))",
                 (title, created_at),
             )
+            self.db.executemany(
+                "INSERT INTO task_groups (task_id, group_id) VALUES (?, ?)",
+                ((cursor.lastrowid, group_id) for group_id in group_ids),
+            )
         return dict(id=cursor.lastrowid, title=title, status=0,
-                    created_at=created_at, group_ids=())
+                    created_at=created_at, group_ids=group_ids)
+
+    def _valid_group_ids(self, group_ids):
+        if not isinstance(group_ids, (list, tuple, set, frozenset)) or not group_ids or any(
+            type(group_id) is not int or group_id <= 0 for group_id in group_ids
+        ) or len(group_ids) != len(set(group_ids)):
+            raise ValueError("At least one valid group is required.")
+        group_ids = tuple(sorted(group_ids))
+        if self.db.execute(
+            f"SELECT COUNT(*) FROM groups WHERE id IN ({','.join('?' for _ in group_ids)})",
+            group_ids,
+        ).fetchone()[0] != len(group_ids):
+            raise ValueError("At least one valid group is required.")
+        return group_ids
 
     def move(self, task_id, position):
         """Move a task to a zero-based position in the saved task list."""
@@ -336,16 +367,7 @@ class Store:
         has_group_ids = "group_ids" in fields
         group_ids = fields.pop("group_ids", None)
         if has_group_ids:
-            if not isinstance(group_ids, (list, tuple, set, frozenset)) or any(
-                type(group_id) is not int or group_id <= 0 for group_id in group_ids
-            ) or len(group_ids) != len(set(group_ids)):
-                raise ValueError("Invalid groups.")
-            group_ids = tuple(sorted(group_ids))
-            if group_ids and self.db.execute(
-                f"SELECT COUNT(*) FROM groups WHERE id IN ({','.join('?' for _ in group_ids)})",
-                group_ids,
-            ).fetchone()[0] != len(group_ids):
-                raise ValueError("Invalid groups.")
+            group_ids = self._valid_group_ids(group_ids)
         # Column names come only from the allowlist above; values are parameters.
         assignments = ", ".join(f"{field} = ?" for field in fields)
         with self.db:

@@ -14,13 +14,17 @@ class StorageTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.path = Path(self.directory.name) / "data" / "tasks.sqlite3"
         self.store = Store(self.path)
+        self.general_id = next(group["id"] for group in self.store.list_groups() if group["name"] == "General")
+
+    def add_task(self, title):
+        return self.store.add(title, (self.general_id,))
 
     def tearDown(self):
         self.store.close()
         self.directory.cleanup()
 
     def test_changes_survive_restart_and_metadata_excludes_body(self):
-        task = self.store.add("  Ship it ✓  ")
+        task = self.add_task("  Ship it ✓  ")
         created = task["created_at"]
         self.assertIsNotNone(datetime.fromisoformat(created).tzinfo)
         for status in (1, 2, 0):
@@ -32,12 +36,12 @@ class StorageTests(unittest.TestCase):
         self.store = Store(self.path)
         saved = dict(self.store.list_tasks()[0])
         self.assertEqual(saved, dict(id=task["id"], title="Renamed", status=2,
-                                     created_at=created, group_ids=()))
+                                     created_at=created, group_ids=(self.general_id,)))
         self.assertEqual(self.store.body(task["id"]), body)
 
     def test_newest_first_and_deletion_persists(self):
-        first = self.store.add("First")
-        second = self.store.add("Second")
+        first = self.add_task("First")
+        second = self.add_task("Second")
         self.assertEqual([r["id"] for r in self.store.list_tasks()], [second["id"], first["id"]])
         self.store.delete(first["id"])
         self.store.close()
@@ -47,9 +51,9 @@ class StorageTests(unittest.TestCase):
             self.store.body(first["id"])
 
     def test_reorder_persists_and_new_tasks_start_on_top(self):
-        first = self.store.add("First")
-        second = self.store.add("Second")
-        third = self.store.add("Third")
+        first = self.add_task("First")
+        second = self.add_task("Second")
+        third = self.add_task("Third")
         self.store.move(first["id"], 0)
         self.assertEqual(
             [row["id"] for row in self.store.list_tasks()],
@@ -61,7 +65,7 @@ class StorageTests(unittest.TestCase):
             [row["id"] for row in self.store.list_tasks()],
             [first["id"], third["id"], second["id"]],
         )
-        fourth = self.store.add("Fourth")
+        fourth = self.add_task("Fourth")
         self.store.move(fourth["id"], 3)
         self.assertEqual(
             [row["id"] for row in self.store.list_tasks()],
@@ -69,9 +73,9 @@ class StorageTests(unittest.TestCase):
         )
 
     def test_reorder_rejects_invalid_moves_and_rolls_back_on_failure(self):
-        first = self.store.add("First")
-        second = self.store.add("Second")
-        third = self.store.add("Third")
+        first = self.add_task("First")
+        second = self.add_task("Second")
+        third = self.add_task("Third")
         original = [row["id"] for row in self.store.list_tasks()]
         for task_id, position, error in (
             (999, 0, LookupError), (first["id"], -1, ValueError),
@@ -95,7 +99,7 @@ class StorageTests(unittest.TestCase):
         )
 
     def test_status_sort_toggles_direction_stably_and_persists(self):
-        tasks = [self.store.add(str(index)) for index in range(5)]
+        tasks = [self.add_task(str(index)) for index in range(5)]
         for task, status in zip(tasks, (2, 0, 1, 0, 2)):
             self.store.update(task["id"], status=status)
         original = [row["id"] for row in self.store.list_tasks()]
@@ -113,7 +117,7 @@ class StorageTests(unittest.TestCase):
             self.store.sort_by_status("descending")
 
     def test_status_sort_rolls_back_when_saving_order_fails(self):
-        tasks = [self.store.add(str(index)) for index in range(3)]
+        tasks = [self.add_task(str(index)) for index in range(3)]
         self.store.update(tasks[0]["id"], status=2)
         original = [row["id"] for row in self.store.list_tasks()]
         self.store.db.execute(f"""
@@ -144,15 +148,15 @@ class StorageTests(unittest.TestCase):
         try:
             self.assertEqual([row["id"] for row in old_store.list_tasks()], [7, 2])
             self.assertEqual(old_store.body(2), "Old note")
-            self.assertEqual(old_store.db.execute("PRAGMA user_version").fetchone()[0], 4)
-            self.assertEqual([row["group_ids"] for row in old_store.list_tasks()], [(), ()])
+            self.assertEqual(old_store.db.execute("PRAGMA user_version").fetchone()[0], 5)
+            self.assertEqual([row["group_ids"] for row in old_store.list_tasks()], [(old_store.list_groups()[0]["id"],)] * 2)
             old_store.move(2, 0)
             self.assertEqual([row["id"] for row in old_store.list_tasks()], [2, 7])
         finally:
             old_store.close()
 
     def test_empty_notes_and_invalid_edits(self):
-        task = self.store.add("Task")
+        task = self.add_task("Task")
         self.assertEqual(self.store.body(task["id"]), "")
         self.store.update(task["id"], body="Something")
         self.store.update(task["id"], body="")
@@ -162,11 +166,19 @@ class StorageTests(unittest.TestCase):
             with self.subTest(fields=fields), self.assertRaises(ValueError):
                 self.store.update(task["id"], **fields)
         with self.assertRaises(ValueError):
-            self.store.add(" \n ")
+            self.add_task(" \n ")
         self.assertEqual(self.store.list_tasks()[0]["title"], "Task")
 
+    def test_add_requires_title_and_existing_group_without_saving_a_task(self):
+        for title, group_ids in ((" ", (self.general_id,)),
+                                 ("Task", ()), ("Task", (999,)),
+                                 ("Task", (0,))):
+            with self.subTest(title=title, group_ids=group_ids), self.assertRaises(ValueError):
+                self.store.add(title, group_ids)
+        self.assertEqual(self.store.list_tasks(), [])
+
     def test_failed_transaction_leaves_existing_values(self):
-        task = self.store.add("Task")
+        task = self.add_task("Task")
         with self.assertRaises(sqlite3.IntegrityError):
             self.store.update(task["id"], title="Changed", body=None)
         self.assertEqual(self.store.list_tasks()[0]["title"], "Task")
@@ -178,25 +190,25 @@ class StorageTests(unittest.TestCase):
             self.store.update(999, title="Missing")
 
     def test_future_database_version_is_rejected(self):
-        self.store.db.execute("PRAGMA user_version = 5")
+        self.store.db.execute("PRAGMA user_version = 6")
         with self.assertRaises(RuntimeError):
             Store(self.path)
-        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 5)
+        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 6)
 
     def test_groups_and_selection_persist_with_task_assignment(self):
-        task = self.store.add("Task")
+        task = self.add_task("Task")
         self.assertEqual([(row["name"], row["selected"]) for row in self.store.list_groups()],
-                         [("No group", 1)])
+                         [("General", 1)])
         group = self.store.add_group("  Home  ")
         self.assertEqual(group["name"], "Home")
         self.store.update(task["id"], group_ids=(group["id"],))
-        self.store.set_group_selected(0, False)
+        self.store.set_group_selected(self.general_id, False)
         self.store.set_group_selected(group["id"], False)
         self.store.close()
         self.store = Store(self.path)
         self.assertEqual(self.store.list_tasks()[0]["group_ids"], (group["id"],))
         self.assertEqual([(row["name"], row["selected"]) for row in self.store.list_groups()],
-                         [("No group", 0), ("Home", 0)])
+                         [("General", 0), ("Home", 0)])
         for invalid in ("", "  ", None):
             with self.assertRaises(ValueError):
                 self.store.add_group(invalid)
@@ -207,8 +219,8 @@ class StorageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.set_group_selected(group["id"], 1)
 
-    def test_task_can_join_multiple_groups_and_return_to_no_group(self):
-        task = self.store.add("Shared")
+    def test_task_can_join_multiple_groups_but_cannot_leave_all_groups(self):
+        task = self.add_task("Shared")
         home = self.store.add_group("Home")
         work = self.store.add_group("Work")
         self.store.update(task["id"], group_ids=(work["id"], home["id"]))
@@ -220,18 +232,19 @@ class StorageTests(unittest.TestCase):
                          (home["id"], work["id"]))
         self.store.update(task["id"], group_ids=(work["id"],))
         self.assertEqual(self.store.list_tasks()[0]["group_ids"], (work["id"],))
-        self.store.update(task["id"], group_ids=())
-        self.assertEqual(self.store.list_tasks()[0]["group_ids"], ())
+        with self.assertRaises(ValueError):
+            self.store.update(task["id"], group_ids=())
+        self.assertEqual(self.store.list_tasks()[0]["group_ids"], (work["id"],))
         self.store.delete(task["id"])
         self.assertEqual(self.store.db.execute(
             "SELECT COUNT(*) FROM task_groups"
         ).fetchone()[0], 0)
 
     def test_invalid_group_membership_preserves_existing_values(self):
-        task = self.store.add("Original")
+        task = self.add_task("Original")
         home = self.store.add_group("Home")
         self.store.update(task["id"], group_ids=(home["id"],))
-        for group_ids in ((0,), (999,), (home["id"], home["id"]),
+        for group_ids in ((0,), (), (999,), (home["id"], home["id"]),
                           (True,), None, "Home"):
             with self.subTest(group_ids=group_ids), self.assertRaises(ValueError):
                 self.store.update(task["id"], title="Changed", group_ids=group_ids)
@@ -241,7 +254,7 @@ class StorageTests(unittest.TestCase):
             self.store.update(999, group_ids=(home["id"],))
 
     def test_version_three_group_assignment_migrates_to_membership(self):
-        task = self.store.add("Existing")
+        task = self.add_task("Existing")
         group = self.store.add_group("Work")
         self.store.close()
         with sqlite3.connect(self.path) as db:
@@ -251,14 +264,25 @@ class StorageTests(unittest.TestCase):
             db.execute("PRAGMA user_version = 3")
         self.store = Store(self.path)
         self.assertEqual(self.store.list_tasks()[0]["group_ids"], (group["id"],))
-        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 4)
+        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 5)
+
+    def test_version_four_ungrouped_tasks_move_to_general(self):
+        task = self.add_task("Existing")
+        self.store.close()
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO groups (id, name) VALUES (0, 'No group')")
+            db.execute("DELETE FROM task_groups WHERE task_id = ?", (task["id"],))
+            db.execute("PRAGMA user_version = 4")
+        self.store = Store(self.path)
+        self.assertEqual(self.store.list_tasks()[0]["group_ids"], (self.general_id,))
+        self.assertEqual([group["name"] for group in self.store.list_groups()], ["General"])
 
     def test_export_is_complete_standalone_snapshot(self):
         group = self.store.add_group("Work")
-        task = self.store.add("Prepare report")
+        task = self.add_task("Prepare report")
         self.store.update(task["id"], body="Detailed notes", status=1,
                           group_ids=(group["id"],))
-        self.store.set_group_selected(0, False)
+        self.store.set_group_selected(self.general_id, False)
         self.store.set_row_spacing_percent(65)
         destination = Path(self.directory.name) / "backup.sqlite3"
 
@@ -267,7 +291,7 @@ class StorageTests(unittest.TestCase):
         with sqlite3.connect(destination) as backup:
             self.assertEqual(backup.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             self.assertEqual(backup.execute("PRAGMA journal_mode").fetchone()[0], "delete")
-            self.assertEqual(backup.execute("PRAGMA user_version").fetchone()[0], 4)
+            self.assertEqual(backup.execute("PRAGMA user_version").fetchone()[0], 5)
             self.assertEqual(backup.execute(
                 "SELECT title, body, status FROM tasks"
             ).fetchone(), ("Prepare report", "Detailed notes", 1))
@@ -276,7 +300,7 @@ class StorageTests(unittest.TestCase):
             ).fetchall(), [(task["id"], group["id"])])
             self.assertEqual(backup.execute(
                 "SELECT name, selected FROM groups ORDER BY id"
-            ).fetchall(), [("No group", 0), ("Work", 1)])
+            ).fetchall(), [("General", 0), ("Work", 1)])
             self.assertEqual(backup.execute(
                 "SELECT value FROM preferences WHERE key = 'row_spacing_percent'"
             ).fetchone()[0], "65")
@@ -307,7 +331,7 @@ class StorageTests(unittest.TestCase):
         source = root / "simple-todo/tasks.sqlite3"
         previous = Store(source)
         group = previous.add_group("Home")
-        task = previous.add("Remember this")
+        task = previous.add("Remember this", (previous.list_groups()[0]["id"],))
         previous.update(task["id"], body="Detailed note", status=2,
                         group_ids=(group["id"],))
         previous.set_group_selected(group["id"], False)
@@ -322,7 +346,7 @@ class StorageTests(unittest.TestCase):
                 for table in ("tasks", "groups", "task_groups", "settings", "app_preferences", "preferences"):
                     self.assertEqual(migrated.execute(f"SELECT * FROM {table}").fetchall(),
                                      [tuple(row) for row in previous.db.execute(f"SELECT * FROM {table}")])
-                self.assertEqual(migrated.execute("PRAGMA user_version").fetchone()[0], 4)
+                self.assertEqual(migrated.execute("PRAGMA user_version").fetchone()[0], 5)
                 self.assertEqual(migrated.execute("SELECT body FROM tasks").fetchone()[0],
                                  "Note still in WAL")
             self.assertTrue(source.exists())
@@ -336,11 +360,11 @@ class StorageTests(unittest.TestCase):
         root = Path(self.directory.name)
         source = root / "simple-todo/tasks.sqlite3"
         previous = Store(source)
-        previous.add("Old")
+        previous.add("Old", (previous.list_groups()[0]["id"],))
         previous.close()
         destination = root / "Tabella/tasks.sqlite3"
         current = Store(destination)
-        current.add("Current")
+        current.add("Current", (current.list_groups()[0]["id"],))
         current.close()
         self.assertFalse(migrate_legacy_database(destination))
         with sqlite3.connect(destination) as migrated:
