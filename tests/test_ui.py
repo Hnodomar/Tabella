@@ -198,20 +198,23 @@ class UiTests(unittest.TestCase):
         self.assertIn("to-do first", self.window.sort_button.get_tooltip_text())
 
     def test_group_controls_use_matching_unframed_titlebar_icons(self):
-        controls = self.window.group_button.get_parent()
+        controls = self.window.add_group_button.get_parent()
         self.assertTrue(controls.has_css_class("group-control"))
-        self.assertIs(controls.get_first_child(), self.window.group_button)
-        self.assertIs(self.window.group_button.get_next_sibling(),
-                      self.window.add_group_button)
+        self.assertIs(controls.get_first_child(), self.window.add_group_button)
+        self.assertIs(self.window.add_group_button.get_next_sibling(),
+                      self.window.remove_group_button)
+        self.assertIs(self.window.remove_group_button.get_next_sibling(),
+                      self.window.group_button)
         header = self.window.get_titlebar()
         bounds = [button.compute_bounds(header)[1] for button in
-                  (self.window.add_button, self.window.group_button,
-                   self.window.add_group_button)]
+                  (self.window.add_button, self.window.add_group_button,
+                   self.window.remove_group_button, self.window.group_button)]
         gaps = [bounds[index + 1].get_x() - bounds[index].get_x()
-                - bounds[index].get_width() for index in range(2)]
-        self.assertAlmostEqual(gaps[0], gaps[1], delta=1)
+                - bounds[index].get_width() for index in range(3)]
+        self.assertAlmostEqual(gaps[1], gaps[2], delta=1)
         for button, icon_name in ((self.window.group_button, "filter.svg"),
-                                  (self.window.add_group_button, "add-group.svg")):
+                                  (self.window.add_group_button, "add-group.svg"),
+                                  (self.window.remove_group_button, "remove-group.svg")):
             self.assertFalse(button.get_has_frame())
             self.assertIsInstance(button.get_child(), Gtk.Image)
             self.assertTrue(self.window.icon_path(icon_name).is_file())
@@ -219,6 +222,9 @@ class UiTests(unittest.TestCase):
             self.assertEqual((texture.get_width(), texture.get_height()), (24, 24))
             self.assertGreater(button.get_height(), 0)
             self.assertLessEqual(button.get_height(), self.window.get_titlebar().get_height())
+        add_icon = self.window.icon_path("add-group.svg").read_text()
+        remove_icon = self.window.icon_path("remove-group.svg").read_text()
+        self.assertEqual(add_icon.splitlines()[-2], remove_icon.splitlines()[-2])
 
     def test_task_title_fills_expand_button_without_arrow(self):
         task, row = self.add_task("A task title that can use the whole row")
@@ -520,6 +526,7 @@ class UiTests(unittest.TestCase):
         self.assertEqual(self.window.model.get_n_items(), 0)
         self.assertIn("title", self.window.create_error.get_text())
         self.window.create_title.set_text("Groceries")
+        self.window.create_description.get_buffer().set_text("Milk and bread")
         self.window.create_button.emit("clicked")
         self.assertEqual(self.window.model.get_n_items(), 0)
         self.assertIn("group", self.window.create_error.get_text())
@@ -529,12 +536,38 @@ class UiTests(unittest.TestCase):
         task = self.window.model.get_item(0)
         self.assertEqual(task.title, "Groceries")
         self.assertEqual(self.store.list_tasks()[0]["title"], "Groceries")
+        self.assertEqual(self.store.body(task.id), "Milk and bread")
         row = next(w for w in descendants(self.window.list)
                    if isinstance(w, TaskRow) and w.task == task)
         row.expand.emit("clicked")
         pump()
         self.assertFalse(row.get_parent().has_css_class("activatable"))
         self.assertEqual(self.window.model.get_n_items(), 1)
+
+    def test_remove_group_menu_rejects_used_group_and_removes_empty_group(self):
+        task, row = self.add_task("Grouped")
+        general_id = self.window.groups[0]["id"]
+        general_row = self.window.remove_group_rows[general_id]
+        delete_button = general_row.get_last_child()
+        self.assertTrue(delete_button.has_css_class("remove-group-trash"))
+        delete_button.emit("clicked")
+        self.assertIn("Move or delete tasks", self.window.message.get_text())
+        self.assertIn(general_id, self.window.remove_group_rows)
+
+        self.window.prompt_add_group()
+        dialog = next(w for w in self.application.get_windows() if isinstance(w, Gtk.Dialog))
+        entry = next(w for w in descendants(dialog) if isinstance(w, Gtk.Entry))
+        entry.set_text("Unused")
+        dialog.response(Gtk.ResponseType.ACCEPT)
+        pump()
+        unused_id = self.window.groups[-1]["id"]
+        self.assertIn(unused_id, self.window.create_group_checks)
+        self.window.remove_group_rows[unused_id].get_last_child().emit("clicked")
+        self.assertNotIn(unused_id, self.window.remove_group_rows)
+        self.assertNotIn(unused_id, self.window.create_group_checks)
+        self.assertNotIn(unused_id, self.window.group_checks)
+        self.assertNotIn(unused_id, row.group_checks)
+        self.assertEqual(task.group_ids, {general_id})
 
     def test_group_filter_and_task_assignment_survive_restart(self):
         task, row = self.add_task("Grouped")

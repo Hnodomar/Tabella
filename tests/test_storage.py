@@ -177,6 +177,16 @@ class StorageTests(unittest.TestCase):
                 self.store.add(title, group_ids)
         self.assertEqual(self.store.list_tasks(), [])
 
+    def test_add_saves_optional_description(self):
+        task = self.store.add("With description", (self.general_id,),
+                              body="First line\nSecond line")
+        self.assertEqual(self.store.body(task["id"]), "First line\nSecond line")
+        plain = self.add_task("Without description")
+        self.assertEqual(self.store.body(plain["id"]), "")
+        with self.assertRaises(ValueError):
+            self.store.add("Invalid description", (self.general_id,), body=None)
+        self.assertEqual(len(self.store.list_tasks()), 2)
+
     def test_failed_transaction_leaves_existing_values(self):
         task = self.add_task("Task")
         with self.assertRaises(sqlite3.IntegrityError):
@@ -218,6 +228,18 @@ class StorageTests(unittest.TestCase):
             self.store.update(task["id"], group_ids=(999,))
         with self.assertRaises(ValueError):
             self.store.set_group_selected(group["id"], 1)
+
+    def test_delete_group_requires_no_task_memberships(self):
+        group = self.store.add_group("Work")
+        task = self.store.add("Shared", (self.general_id, group["id"]))
+        with self.assertRaisesRegex(ValueError, "Move or delete tasks"):
+            self.store.delete_group(group["id"])
+        self.assertIn(group["id"], [row["id"] for row in self.store.list_groups()])
+        self.store.update(task["id"], group_ids=(self.general_id,))
+        self.store.delete_group(group["id"])
+        self.assertNotIn(group["id"], [row["id"] for row in self.store.list_groups()])
+        with self.assertRaises(LookupError):
+            self.store.delete_group(group["id"])
 
     def test_task_can_join_multiple_groups_but_cannot_leave_all_groups(self):
         task = self.add_task("Shared")
