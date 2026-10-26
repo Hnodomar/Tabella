@@ -299,7 +299,7 @@ class TaskRow(Gtk.Box):
         self.title_entry.add_controller(focus)
         self.details.append(self.title_entry)
         self.details.append(Gtk.Label(label="Groups", xalign=0))
-        self.group_dropdown = Gtk.MenuButton(label="No group")
+        self.group_dropdown = Gtk.MenuButton(label="Choose groups")
         self.group_dropdown.update_property([Gtk.AccessibleProperty.LABEL], ["Task groups"])
         self.group_menu = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.group_checks = {}
@@ -405,27 +405,25 @@ class TaskRow(Gtk.Box):
                 self.group_checks[group["id"]] = check
                 self.group_menu.append(check)
         for group_id, check in self.group_checks.items():
-            check.set_active(group_id in self.task.group_ids if group_id else not self.task.group_ids)
+            check.set_active(group_id in self.task.group_ids)
         names = [group["name"] for group in self.window.groups
                  if group["id"] in self.task.group_ids]
-        self.group_dropdown.set_label(", ".join(names) if names else "No group")
+        self.group_dropdown.set_label(", ".join(names) if names else "Choose groups")
 
     def group_changed(self, check, group_id):
         if self.loading or self.task is None:
             return
         group_ids = set(self.task.group_ids)
-        if group_id == 0:
-            if check.get_active():
-                group_ids.clear()
-            else:
-                self.loading = True
-                self.refresh_group_checks()
-                self.loading = False
-                return
-        elif check.get_active():
+        if check.get_active():
             group_ids.add(group_id)
         else:
             group_ids.discard(group_id)
+        if not group_ids:
+            self.window.report_error(ValueError("At least one group is required."))
+            self.loading = True
+            self.refresh_group_checks()
+            self.loading = False
+            return
         task = self.task
         if group_ids != task.group_ids:
             self.window.change_task_groups(task, group_ids)
@@ -473,7 +471,6 @@ class TabellaWindow(Gtk.ApplicationWindow):
         self.model.splice(0, 0, [Task(record) for record in store.list_tasks()])
         self.group_filter = Gtk.CustomFilter.new(
             lambda task: bool(task.group_ids & self.selected_groups)
-            or (not task.group_ids and 0 in self.selected_groups)
         )
         self.visible_model = Gtk.FilterListModel.new(self.model, self.group_filter)
         self.connect("close-request", self.on_close)
@@ -487,14 +484,34 @@ class TabellaWindow(Gtk.ApplicationWindow):
         header = Gtk.HeaderBar()
         header.add_css_class("compact-titlebar")
         header.set_title_widget(Gtk.Box())
-        self.add_button = Gtk.Button()
+        self.add_button = Gtk.MenuButton()
         self.add_button.add_css_class("flat")
+        self.add_button.set_has_frame(False)
         self.add_button.set_child(self.icon("add.svg"))
         self.add_button.set_tooltip_text("Add a task")
         self.add_button.update_property(
             [Gtk.AccessibleProperty.LABEL], ["Add a task"]
         )
-        self.add_button.connect("clicked", self.add_task)
+        self.create_menu = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.create_title = Gtk.Entry(placeholder_text="Task title", activates_default=True)
+        self.create_title.update_property([Gtk.AccessibleProperty.LABEL], ["New task title"])
+        self.create_menu.append(self.create_title)
+        self.create_menu.append(Gtk.Label(label="Groups", xalign=0))
+        self.create_group_checks = {}
+        self.create_groups_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        for group in self.groups:
+            self.add_create_group_check(group)
+        self.create_menu.append(self.create_groups_box)
+        self.create_error = Gtk.Label(xalign=0, wrap=True, visible=False)
+        self.create_error.add_css_class("error")
+        self.create_menu.append(self.create_error)
+        self.create_button = Gtk.Button(label="Create", halign=Gtk.Align.END)
+        self.create_button.connect("clicked", self.add_task)
+        self.create_menu.append(self.create_button)
+        self.create_popover = Gtk.Popover()
+        self.create_popover.set_child(margins(self.create_menu, 12))
+        self.create_popover.connect("show", lambda *_: self.create_title.grab_focus())
+        self.add_button.set_popover(self.create_popover)
         header.pack_start(self.add_button)
         group_control = Gtk.Box(spacing=6)
         group_control.add_css_class("group-control")
@@ -758,6 +775,11 @@ class TabellaWindow(Gtk.ApplicationWindow):
         self.group_checks[group["id"]] = check
         self.group_menu.append(check)
 
+    def add_create_group_check(self, group):
+        check = Gtk.CheckButton(label=group["name"])
+        self.create_group_checks[group["id"]] = check
+        self.create_groups_box.append(check)
+
     def toggle_group(self, check, group_id):
         selected = check.get_active()
         if selected == (group_id in self.selected_groups):
@@ -804,6 +826,7 @@ class TabellaWindow(Gtk.ApplicationWindow):
             self.groups.append(group)
             self.selected_groups.add(group["id"])
             self.add_group_check(group)
+            self.add_create_group_check(group)
             for task_row in self.task_rows():
                 if task_row.details is not None:
                     task_row.loading = True
@@ -919,19 +942,28 @@ class TabellaWindow(Gtk.ApplicationWindow):
         self.apply_appearance()
 
     def add_task(self, *_):
-        try:
-            if 0 not in self.selected_groups:
-                self.store.set_group_selected(0, True)
-                self.selected_groups.add(0)
-                self.group_checks[0].set_active(True)
-                self.group_filter.changed(Gtk.FilterChange.DIFFERENT)
-            record = self.store.add("New task")
-        except Exception as error:
-            self.report_error(error)
+        title = self.create_title.get_text().strip()
+        group_ids = tuple(group_id for group_id, check in self.create_group_checks.items()
+                          if check.get_active())
+        if not title or not group_ids:
+            message = "Enter a task title and choose at least one group."
+            self.create_error.set_text(message)
+            self.create_error.set_visible(True)
+            self.report_error(ValueError(message), "Create task")
             return
+        try:
+            record = self.store.add(title, group_ids)
+        except Exception as error:
+            self.create_error.set_text(str(error))
+            self.create_error.set_visible(True)
+            self.report_error(error, "Create task")
+            return
+        self.create_popover.popdown()
+        self.create_title.set_text("")
+        self.create_error.set_visible(False)
+        for check in self.create_group_checks.values():
+            check.set_active(False)
         task = Task(record)
-        task.expanded = True
-        task.focus_title = True
         self.model.insert(0, task)
         self.update_message(clear_error=True)
 
