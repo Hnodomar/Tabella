@@ -195,6 +195,16 @@ class Store:
             cursor = self.db.execute("INSERT INTO groups (name) VALUES (?)", (name,))
         return dict(id=cursor.lastrowid, name=name, selected=1)
 
+    def delete_group(self, group_id):
+        with self.db:
+            if self.db.execute(
+                "SELECT 1 FROM task_groups WHERE group_id = ? LIMIT 1", (group_id,)
+            ).fetchone() is not None:
+                raise ValueError("Move or delete tasks in this group before deleting it.")
+            cursor = self.db.execute("DELETE FROM groups WHERE id = ?", (group_id,))
+            if cursor.rowcount != 1:
+                raise LookupError("Group no longer exists.")
+
     def set_group_selected(self, group_id, selected):
         if type(selected) is not bool:
             raise ValueError("Group selection must be a boolean.")
@@ -282,19 +292,21 @@ class Store:
                 (("internal_theme", mode), ("ubuntu_theme", "1" if use_ubuntu_theme else "0")),
             )
 
-    def add(self, title, group_ids):
+    def add(self, title, group_ids, body=""):
         if not isinstance(title, str):
             raise ValueError("A title is required.")
         title = title.strip()
         if not title:
             raise ValueError("A title is required.")
         group_ids = self._valid_group_ids(group_ids)
+        if not isinstance(body, str):
+            raise ValueError("Description must be text.")
         created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with self.db:
             cursor = self.db.execute(
-                "INSERT INTO tasks (title, created_at, sort_order) "
-                "VALUES (?, ?, COALESCE((SELECT MIN(sort_order) - 1 FROM tasks), 0))",
-                (title, created_at),
+                "INSERT INTO tasks (title, body, created_at, sort_order) "
+                "VALUES (?, ?, ?, COALESCE((SELECT MIN(sort_order) - 1 FROM tasks), 0))",
+                (title, body, created_at),
             )
             self.db.executemany(
                 "INSERT INTO task_groups (task_id, group_id) VALUES (?, ?)",

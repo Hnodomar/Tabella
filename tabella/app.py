@@ -49,6 +49,9 @@ APP_CSS = b"""
     headerbar.compact-titlebar .group-control > menubutton > button:hover {
         background: alpha(currentColor, 0.08);
     }
+    button.remove-group-trash {
+        color: #c01c28;
+    }
     listview.tabella-list > row {
         padding: 0;
         margin: 0;
@@ -496,6 +499,15 @@ class TabellaWindow(Gtk.ApplicationWindow):
         self.create_title = Gtk.Entry(placeholder_text="Task title", activates_default=True)
         self.create_title.update_property([Gtk.AccessibleProperty.LABEL], ["New task title"])
         self.create_menu.append(self.create_title)
+        self.create_menu.append(Gtk.Label(label="Description (optional)", xalign=0))
+        self.create_description = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR)
+        self.create_description.update_property(
+            [Gtk.AccessibleProperty.LABEL], ["New task description"]
+        )
+        description_scroll = Gtk.ScrolledWindow(min_content_height=80)
+        description_scroll.set_has_frame(True)
+        description_scroll.set_child(self.create_description)
+        self.create_menu.append(description_scroll)
         self.create_menu.append(Gtk.Label(label="Groups", xalign=0))
         self.create_group_checks = {}
         self.create_groups_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -515,6 +527,30 @@ class TabellaWindow(Gtk.ApplicationWindow):
         header.pack_start(self.add_button)
         group_control = Gtk.Box(spacing=6)
         group_control.add_css_class("group-control")
+        self.add_group_button = Gtk.Button()
+        self.add_group_button.set_has_frame(False)
+        self.add_group_button.set_child(self.icon("add-group.svg"))
+        self.add_group_button.set_tooltip_text("Add a group")
+        self.add_group_button.update_property(
+            [Gtk.AccessibleProperty.LABEL], ["Add a group"]
+        )
+        self.add_group_button.connect("clicked", self.prompt_add_group)
+        group_control.append(self.add_group_button)
+        self.remove_group_button = Gtk.MenuButton()
+        self.remove_group_button.set_has_frame(False)
+        self.remove_group_button.set_child(self.icon("remove-group.svg"))
+        self.remove_group_button.set_tooltip_text("Remove a group")
+        self.remove_group_button.update_property(
+            [Gtk.AccessibleProperty.LABEL], ["Remove a group"]
+        )
+        self.remove_groups_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.remove_group_rows = {}
+        for group in self.groups:
+            self.add_remove_group_row(group)
+        remove_popover = Gtk.Popover()
+        remove_popover.set_child(margins(self.remove_groups_box, 8))
+        self.remove_group_button.set_popover(remove_popover)
+        group_control.append(self.remove_group_button)
         self.group_button = Gtk.MenuButton()
         self.group_button.set_has_frame(False)
         self.group_button.set_child(self.icon("filter.svg"))
@@ -530,15 +566,6 @@ class TabellaWindow(Gtk.ApplicationWindow):
         group_popover.set_child(margins(self.group_menu, 8))
         self.group_button.set_popover(group_popover)
         group_control.append(self.group_button)
-        self.add_group_button = Gtk.Button()
-        self.add_group_button.set_has_frame(False)
-        self.add_group_button.set_child(self.icon("add-group.svg"))
-        self.add_group_button.set_tooltip_text("Add a group")
-        self.add_group_button.update_property(
-            [Gtk.AccessibleProperty.LABEL], ["Add a group"]
-        )
-        self.add_group_button.connect("clicked", self.prompt_add_group)
-        group_control.append(self.add_group_button)
         header.pack_start(group_control)
         self.theme_button = Gtk.Button()
         self.theme_button.add_css_class("flat")
@@ -780,6 +807,43 @@ class TabellaWindow(Gtk.ApplicationWindow):
         self.create_group_checks[group["id"]] = check
         self.create_groups_box.append(check)
 
+    def add_remove_group_row(self, group):
+        row = Gtk.Box(spacing=8)
+        row.append(Gtk.Label(label=group["name"], xalign=0, hexpand=True))
+        button = Gtk.Button()
+        button.add_css_class("remove-group-trash")
+        button.set_child(Gtk.Image.new_from_icon_name("user-trash-symbolic"))
+        button.set_tooltip_text(f"Delete group {group['name']}")
+        button.update_property(
+            [Gtk.AccessibleProperty.LABEL], [f"Delete group {group['name']}"]
+        )
+        button.connect("clicked", self.delete_group, group["id"])
+        row.append(button)
+        self.remove_group_rows[group["id"]] = row
+        self.remove_groups_box.append(row)
+
+    def delete_group(self, _button, group_id):
+        if not self.flush():
+            return
+        try:
+            self.store.delete_group(group_id)
+        except Exception as error:
+            self.report_error(error, "Delete group")
+            return
+        self.groups = [group for group in self.groups if group["id"] != group_id]
+        self.selected_groups.discard(group_id)
+        self.group_menu.remove(self.group_checks.pop(group_id))
+        self.create_groups_box.remove(self.create_group_checks.pop(group_id))
+        self.remove_groups_box.remove(self.remove_group_rows.pop(group_id))
+        for task_row in self.task_rows():
+            if task_row.details is not None:
+                check = task_row.group_checks.pop(group_id, None)
+                if check is not None:
+                    task_row.group_menu.remove(check)
+                task_row.refresh_group_checks()
+        self.group_filter.changed(Gtk.FilterChange.DIFFERENT)
+        self.update_message(clear_error=True)
+
     def toggle_group(self, check, group_id):
         selected = check.get_active()
         if selected == (group_id in self.selected_groups):
@@ -827,6 +891,7 @@ class TabellaWindow(Gtk.ApplicationWindow):
             self.selected_groups.add(group["id"])
             self.add_group_check(group)
             self.add_create_group_check(group)
+            self.add_remove_group_row(group)
             for task_row in self.task_rows():
                 if task_row.details is not None:
                     task_row.loading = True
@@ -943,6 +1008,8 @@ class TabellaWindow(Gtk.ApplicationWindow):
 
     def add_task(self, *_):
         title = self.create_title.get_text().strip()
+        buffer = self.create_description.get_buffer()
+        description = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
         group_ids = tuple(group_id for group_id, check in self.create_group_checks.items()
                           if check.get_active())
         if not title or not group_ids:
@@ -952,7 +1019,7 @@ class TabellaWindow(Gtk.ApplicationWindow):
             self.report_error(ValueError(message), "Create task")
             return
         try:
-            record = self.store.add(title, group_ids)
+            record = self.store.add(title, group_ids, body=description)
         except Exception as error:
             self.create_error.set_text(str(error))
             self.create_error.set_visible(True)
@@ -960,6 +1027,7 @@ class TabellaWindow(Gtk.ApplicationWindow):
             return
         self.create_popover.popdown()
         self.create_title.set_text("")
+        buffer.set_text("")
         self.create_error.set_visible(False)
         for check in self.create_group_checks.values():
             check.set_active(False)
