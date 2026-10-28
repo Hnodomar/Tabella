@@ -341,6 +341,33 @@ class UiTests(unittest.TestCase):
         row.body_buffer.delete(start, end)
         self.assertFalse(row.notes_formatter.tags)
 
+    def test_format_mode_keeps_first_row_in_place(self):
+        _, row = self.add_task()
+        row.expand.emit("clicked")
+        view = row.notes_view
+        buffer = row.body_buffer
+        for prefix in ("- ", "    - ", "\t- "):
+            with self.subTest(prefix=prefix):
+                self.window.format_mode_check.set_active(False)
+                buffer.set_text(prefix + "wrapped words " * 35)
+                pump()
+                offsets = (0, prefix.index("-"), len(prefix))
+                original_x = [view.get_iter_location(buffer.get_iter_at_offset(offset)).x
+                              for offset in offsets]
+                self.window.format_mode_check.set_active(True)
+                pump()
+                formatted_x = [view.get_iter_location(buffer.get_iter_at_offset(offset)).x
+                               for offset in offsets]
+                self.assertEqual(formatted_x, original_x)
+                wrapped = buffer.get_start_iter()
+                self.assertTrue(view.forward_display_line(wrapped))
+                self.assertEqual(view.get_iter_location(wrapped).x, original_x[-1])
+                self.window.format_mode_check.set_active(False)
+                pump()
+                restored_x = [view.get_iter_location(buffer.get_iter_at_offset(offset)).x
+                              for offset in offsets]
+                self.assertEqual(restored_x, original_x)
+
     def test_format_mode_applies_to_creation_and_survives_reopening(self):
         self.assertEqual(self.window.format_mode_check.get_label(), "Format mode")
         self.assertTrue(self.window.format_mode_check.get_active())

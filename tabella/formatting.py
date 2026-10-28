@@ -33,8 +33,10 @@ class DescriptionFormatter:
             if match:
                 width, _ = self.view.create_pango_layout(match[1]).get_pixel_size()
                 if width not in tags_by_width:
+                    # GTK applies a negative indent to continuation rows only.
+                    # Keep the paragraph margin unchanged so the dash stays put.
                     tag = buffer.create_tag(
-                        None, left_margin=self.view.get_left_margin() + width,
+                        None, left_margin=self.view.get_left_margin(),
                         indent=-width,
                     )
                     tags_by_width[width] = tag
