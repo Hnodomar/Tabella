@@ -419,6 +419,30 @@ class StorageTests(unittest.TestCase):
         self.store.set_drag_handle_enabled(True)
         self.assertTrue(self.store.drag_handle_enabled())
 
+    def test_format_mode_defaults_are_saved_and_changes_survive_restart(self):
+        self.assertTrue(self.store.format_mode_enabled())
+        self.assertEqual(self.store.db.execute(
+            "SELECT value FROM preferences WHERE key = 'format_mode_enabled'"
+        ).fetchone()[0], "1")
+        for invalid in (None, 0, 1, "false", [], 1.0):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                self.store.set_format_mode_enabled(invalid)
+        for enabled in (False, True):
+            self.store.set_format_mode_enabled(enabled)
+            self.store.close()
+            self.store = Store(self.path)
+            self.assertEqual(self.store.format_mode_enabled(), enabled)
+
+    def test_existing_database_gains_format_mode_without_changing_tasks(self):
+        task = self.add_task("Existing task")
+        self.store.update(task["id"], body="  - Existing notes")
+        with self.store.db:
+            self.store.db.execute("DELETE FROM preferences WHERE key = 'format_mode_enabled'")
+        self.store.close()
+        self.store = Store(self.path)
+        self.assertTrue(self.store.format_mode_enabled())
+        self.assertEqual(self.store.body(task["id"]), "  - Existing notes")
+
     def test_notes_resize_setting_is_validated_and_survives_restart(self):
         self.assertTrue(self.store.notes_resize_enabled())
         for invalid in (0, 1, "0", None):

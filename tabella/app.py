@@ -11,6 +11,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, GObject, Gtk, Pango
 
+from .formatting import DescriptionFormatter
 from .storage import STATUSES, Store
 
 
@@ -319,6 +320,7 @@ class TaskRow(Gtk.Box):
         text.set_right_margin(8)
         text.update_property([Gtk.AccessibleProperty.LABEL], ["Notes"])
         self.notes_view = text
+        self.notes_formatter = DescriptionFormatter(text, self.window.format_mode_enabled)
         self.body_buffer = text.get_buffer()
         self.body_buffer.connect("changed", self.body_changed)
         self.notes_scroll = Gtk.ScrolledWindow(min_content_height=110, max_content_height=240)
@@ -466,6 +468,7 @@ class TabellaWindow(Gtk.ApplicationWindow):
         self.row_spacing_percent = store.row_spacing_percent()
         self.drag_handle_enabled = store.drag_handle_enabled()
         self.notes_resize_enabled = store.notes_resize_enabled()
+        self.format_mode_enabled = store.format_mode_enabled()
         self.status_sort_descending = False
         self.groups = [dict(row) for row in store.list_groups()]
         self.selected_groups = {group["id"] for group in self.groups if group["selected"]}
@@ -501,6 +504,9 @@ class TabellaWindow(Gtk.ApplicationWindow):
         self.create_menu.append(self.create_title)
         self.create_menu.append(Gtk.Label(label="Description (optional)", xalign=0))
         self.create_description = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR)
+        self.create_formatter = DescriptionFormatter(
+            self.create_description, self.format_mode_enabled
+        )
         self.create_description.update_property(
             [Gtk.AccessibleProperty.LABEL], ["New task description"]
         )
@@ -599,6 +605,13 @@ class TabellaWindow(Gtk.ApplicationWindow):
         self._ubuntu_theme_handler = self.ubuntu_theme_check.connect(
             "toggled", self.toggle_ubuntu_theme
         )
+        self.format_mode_check = Gtk.CheckButton(label="Format mode")
+        self.format_mode_check.set_tooltip_text("Align wrapped list lines with the first word after the dash")
+        self.format_mode_check.set_active(self.format_mode_enabled)
+        self._format_mode_handler = self.format_mode_check.connect(
+            "toggled", self.toggle_format_mode
+        )
+        settings_menu.append(self.format_mode_check)
         settings_menu.append(self.ubuntu_theme_check)
         self.drag_handle_check = Gtk.CheckButton(label="Show drag handle")
         self.drag_handle_check.set_active(self.drag_handle_enabled)
@@ -732,6 +745,25 @@ class TabellaWindow(Gtk.ApplicationWindow):
         while child is not None:
             self.apply_drag_handle_visibility(child)
             child = child.get_next_sibling()
+
+    def toggle_format_mode(self, button):
+        enabled = button.get_active()
+        if enabled == self.format_mode_enabled:
+            return
+        try:
+            self.store.set_format_mode_enabled(enabled)
+        except Exception as error:
+            button.handler_block(self._format_mode_handler)
+            button.set_active(self.format_mode_enabled)
+            button.handler_unblock(self._format_mode_handler)
+            self.report_error(error)
+            return
+        self.format_mode_enabled = enabled
+        self.create_formatter.set_enabled(enabled)
+        for row in self.task_rows():
+            if row.details is not None:
+                row.notes_formatter.set_enabled(enabled)
+        self.update_message(clear_error=True)
 
     def toggle_notes_resize(self, button):
         enabled = button.get_active()

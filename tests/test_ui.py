@@ -301,6 +301,81 @@ class UiTests(unittest.TestCase):
         self.assertTrue(self.store.drag_handle_enabled())
         self.assertIn("disk is full", self.window.message.get_text())
 
+    def test_format_mode_wraps_at_first_word_and_preserves_saved_text(self):
+        task, row = self.add_task()
+        row.expand.emit("clicked")
+        text = "    - " + "wrapped words " * 35 + "\nPlain text\n  ordinary text"
+        row.body_buffer.set_text(text)
+        pump()
+        view = row.notes_view
+        first_word = row.body_buffer.get_iter_at_offset(6)
+        continuation = first_word.copy()
+        self.assertTrue(view.forward_display_line(continuation))
+        self.assertGreater(continuation.get_line_offset(), 4)
+        self.assertEqual(view.get_iter_location(first_word).x,
+                         view.get_iter_location(continuation).x)
+        self.assertTrue(row.notes_formatter.tags)
+        self.assertFalse(row.body_buffer.get_iter_at_offset(text.index("Plain")).get_tags())
+        self.assertFalse(row.body_buffer.get_iter_at_offset(text.index("ordinary")).get_tags())
+        self.window.flush()
+        self.assertEqual(self.store.body(task.id), text)
+
+        self.window.format_mode_check.set_active(False)
+        pump()
+        self.assertFalse(row.notes_formatter.tags)
+        continuation = first_word.copy()
+        self.assertTrue(view.forward_display_line(continuation))
+        self.assertLess(view.get_iter_location(continuation).x,
+                        view.get_iter_location(first_word).x)
+        self.assertFalse(self.store.format_mode_enabled())
+        self.assertEqual(self.store.body(task.id), text)
+        self.window.format_mode_check.set_active(True)
+        pump()
+        continuation = first_word.copy()
+        self.assertTrue(view.forward_display_line(continuation))
+        self.assertEqual(view.get_iter_location(first_word).x,
+                         view.get_iter_location(continuation).x)
+        # Editing the marker removes stale formatting immediately.
+        start = row.body_buffer.get_iter_at_offset(4)
+        end = row.body_buffer.get_iter_at_offset(5)
+        row.body_buffer.delete(start, end)
+        self.assertFalse(row.notes_formatter.tags)
+
+    def test_format_mode_applies_to_creation_and_survives_reopening(self):
+        self.assertEqual(self.window.format_mode_check.get_label(), "Format mode")
+        self.assertTrue(self.window.format_mode_check.get_active())
+        buffer = self.window.create_description.get_buffer()
+        buffer.set_text("- root\n\t- tabbed\n  - nested 日本語\ntext - plain\n")
+        self.assertEqual(len(self.window.create_formatter.tags), 3)
+        self.assertTrue(buffer.get_start_iter().get_tags())
+        self.assertFalse(buffer.get_iter_at_offset(buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True).index("text -")).get_tags())
+        self.window.format_mode_check.set_active(False)
+        self.assertFalse(self.window.create_formatter.tags)
+        self.window.destroy()
+        pump()
+        self.window = TabellaWindow(self.application, self.store)
+        self.window.present()
+        pump()
+        self.assertFalse(self.window.format_mode_check.get_active())
+        buffer = self.window.create_description.get_buffer()
+        buffer.set_text("  - text")
+        self.assertFalse(self.window.create_formatter.tags)
+        self.window.format_mode_check.set_active(True)
+        self.assertTrue(self.window.create_formatter.tags)
+        buffer.set_text("")
+        self.assertFalse(self.window.create_formatter.tags)
+
+    def test_format_mode_toggle_recovers_from_save_failure(self):
+        _, row = self.add_task()
+        row.body_buffer.set_text("  - list item")
+        with patch.object(self.store, "set_format_mode_enabled",
+                          side_effect=OSError("disk is full")):
+            self.window.format_mode_check.set_active(False)
+        self.assertTrue(self.window.format_mode_check.get_active())
+        self.assertTrue(row.notes_formatter.tags)
+        self.assertTrue(self.store.format_mode_enabled())
+        self.assertIn("disk is full", self.window.message.get_text())
+
     def test_notes_resize_changes_only_height_and_setting_persists(self):
         task, row = self.add_task()
         row.expand.emit("clicked")
