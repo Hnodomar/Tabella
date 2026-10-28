@@ -115,6 +115,9 @@ class Store:
                         "INSERT INTO preferences (key, value) VALUES ('ubuntu_theme', ?)",
                         ('1' if use_ubuntu else '0',),
                     )
+                self.db.execute(
+                    "INSERT OR IGNORE INTO preferences (key, value) VALUES ('format_mode_enabled', '1')"
+                )
                 if version < 2:
                     self.db.execute(
                         "ALTER TABLE tasks ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
@@ -262,6 +265,22 @@ class Store:
         with self.db:
             self.db.execute(
                 "INSERT INTO preferences (key, value) VALUES ('drag_handle_enabled', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                ("1" if enabled else "0",),
+            )
+
+    def format_mode_enabled(self):
+        row = self.db.execute(
+            "SELECT value FROM preferences WHERE key = 'format_mode_enabled'"
+        ).fetchone()
+        return row is None or row["value"] == "1"
+
+    def set_format_mode_enabled(self, enabled):
+        if type(enabled) is not bool:
+            raise ValueError("Format mode setting must be a boolean.")
+        with self.db:
+            self.db.execute(
+                "INSERT INTO preferences (key, value) VALUES ('format_mode_enabled', ?) "
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 ("1" if enabled else "0",),
             )
