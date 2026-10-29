@@ -606,7 +606,7 @@ class TabellaWindow(Gtk.ApplicationWindow):
             "toggled", self.toggle_ubuntu_theme
         )
         self.format_mode_check = Gtk.CheckButton(label="Format mode")
-        self.format_mode_check.set_tooltip_text("Align wrapped list lines with the first word after the dash")
+        self.format_mode_check.set_tooltip_text("Align wrapped tab-indented rows and match their right inset")
         self.format_mode_check.set_active(self.format_mode_enabled)
         self._format_mode_handler = self.format_mode_check.connect(
             "toggled", self.toggle_format_mode
