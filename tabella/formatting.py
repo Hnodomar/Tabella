@@ -4,7 +4,7 @@ import re
 
 
 class DescriptionFormatter:
-    """Keep wrapped list lines aligned with their first word, preserving source text."""
+    """Align wrapped tab-indented paragraphs, preserving source text."""
 
     def __init__(self, view, enabled=True):
         self.view = view
@@ -29,12 +29,12 @@ class DescriptionFormatter:
         tags_by_width = {}
         offset = 0
         for line in text.split("\n"):
-            match = re.match(r"([ \t]*-[ \t]*)", line)
+            match = re.match(r"([ \t]*\t[ \t]*)", line)
             if match:
                 width, _ = self.view.create_pango_layout(match[1]).get_pixel_size()
                 if width not in tags_by_width:
                     # GTK applies a negative indent to continuation rows only.
-                    # Keep the paragraph margin unchanged so the dash stays put.
+                    # Keep the paragraph margin unchanged so the first row stays put.
                     tag = buffer.create_tag(
                         None, left_margin=self.view.get_left_margin(),
                         right_margin=self.view.get_right_margin() + width,

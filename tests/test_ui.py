@@ -304,14 +304,14 @@ class UiTests(unittest.TestCase):
     def test_format_mode_wraps_at_first_word_and_preserves_saved_text(self):
         task, row = self.add_task()
         row.expand.emit("clicked")
-        text = "    - " + "wrapped words " * 35 + "\nPlain text\n  ordinary text"
+        text = "\t " + "wrapped words " * 35 + "\nPlain text\n  ordinary text"
         row.body_buffer.set_text(text)
         pump()
         view = row.notes_view
-        first_word = row.body_buffer.get_iter_at_offset(6)
+        first_word = row.body_buffer.get_iter_at_offset(2)
         continuation = first_word.copy()
         self.assertTrue(view.forward_display_line(continuation))
-        self.assertGreater(continuation.get_line_offset(), 4)
+        self.assertGreater(continuation.get_line_offset(), 2)
         self.assertEqual(view.get_iter_location(first_word).x,
                          view.get_iter_location(continuation).x)
         self.assertTrue(row.notes_formatter.tags)
@@ -335,9 +335,9 @@ class UiTests(unittest.TestCase):
         self.assertTrue(view.forward_display_line(continuation))
         self.assertEqual(view.get_iter_location(first_word).x,
                          view.get_iter_location(continuation).x)
-        # Editing the marker removes stale formatting immediately.
-        start = row.body_buffer.get_iter_at_offset(4)
-        end = row.body_buffer.get_iter_at_offset(5)
+        # Removing the tab clears stale formatting immediately.
+        start = row.body_buffer.get_iter_at_offset(0)
+        end = row.body_buffer.get_iter_at_offset(1)
         row.body_buffer.delete(start, end)
         self.assertFalse(row.notes_formatter.tags)
 
@@ -346,12 +346,12 @@ class UiTests(unittest.TestCase):
         row.expand.emit("clicked")
         view = row.notes_view
         buffer = row.body_buffer
-        for prefix in ("- ", "    - ", "\t- "):
+        for prefix in ("\t", "\t\t", "  \t "):
             with self.subTest(prefix=prefix):
                 self.window.format_mode_check.set_active(False)
                 buffer.set_text(prefix + "wrapped words " * 35)
                 pump()
-                offsets = (0, prefix.index("-"), len(prefix))
+                offsets = (0, len(prefix) - 1, len(prefix))
                 original_x = [view.get_iter_location(buffer.get_iter_at_offset(offset)).x
                               for offset in offsets]
                 self.window.format_mode_check.set_active(True)
@@ -375,7 +375,7 @@ class UiTests(unittest.TestCase):
         pump()
         for view in (row.notes_view, self.window.create_description):
             buffer = view.get_buffer()
-            for prefix in ("- ", "    - ", "\t- "):
+            for prefix in ("\t", "\t\t", "  \t "):
                 with self.subTest(view=view, prefix=prefix):
                     text = prefix + "x " * 250
                     self.window.format_mode_check.set_active(False)
@@ -415,7 +415,7 @@ class UiTests(unittest.TestCase):
         self.assertEqual(self.window.format_mode_check.get_label(), "Format mode")
         self.assertTrue(self.window.format_mode_check.get_active())
         buffer = self.window.create_description.get_buffer()
-        buffer.set_text("- root\n\t- tabbed\n  - nested 日本語\ntext - plain\n")
+        buffer.set_text("\troot\n\t\t- tabbed\n  \t nested 日本語\ntext - plain\n- dash\n  - spaced\n")
         self.assertEqual(len(self.window.create_formatter.tags), 3)
         self.assertTrue(buffer.get_start_iter().get_tags())
         self.assertFalse(buffer.get_iter_at_offset(buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True).index("text -")).get_tags())
@@ -428,16 +428,29 @@ class UiTests(unittest.TestCase):
         pump()
         self.assertFalse(self.window.format_mode_check.get_active())
         buffer = self.window.create_description.get_buffer()
-        buffer.set_text("  - text")
+        buffer.set_text("\ttext")
         self.assertFalse(self.window.create_formatter.tags)
         self.window.format_mode_check.set_active(True)
         self.assertTrue(self.window.create_formatter.tags)
         buffer.set_text("")
         self.assertFalse(self.window.create_formatter.tags)
 
+    def test_format_mode_requires_a_tab_in_the_leading_whitespace(self):
+        buffer = self.window.create_description.get_buffer()
+        for line in ("- dash", "  - spaced", "    plain", "plain\ttab", ""):
+            with self.subTest(line=line):
+                buffer.set_text(line)
+                self.assertFalse(self.window.create_formatter.tags)
+        for line in ("\tplain", "\t- dash", " \t mixed", "\t\tnested"):
+            with self.subTest(line=line):
+                buffer.set_text(line)
+                self.assertTrue(buffer.get_start_iter().get_tags())
+                self.assertEqual(buffer.get_text(buffer.get_start_iter(),
+                                                 buffer.get_end_iter(), True), line)
+
     def test_format_mode_toggle_recovers_from_save_failure(self):
         _, row = self.add_task()
-        row.body_buffer.set_text("  - list item")
+        row.body_buffer.set_text("\tlist item")
         with patch.object(self.store, "set_format_mode_enabled",
                           side_effect=OSError("disk is full")):
             self.window.format_mode_check.set_active(False)

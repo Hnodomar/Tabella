@@ -10,8 +10,8 @@ Created for my personal use, but easy for anyone else to use it too.
 ### Features
 - Task tracking with titles, grouping, descriptions and completion statuses
 - Persistence for all task data and settings
-- Format mode (enabled by default): wrapped dash-list lines align under the
-  first word after the dash, including indented lists; toggle it in Settings
+- Format mode (enabled by default): tab-indented rows wrap under their
+  first word with a matching right inset; toggle it in Settings
 - Group visibility toggling
 - Dark mode
 - System theme opt-in/out
