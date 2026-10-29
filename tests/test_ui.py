@@ -368,6 +368,49 @@ class UiTests(unittest.TestCase):
                               for offset in offsets]
                 self.assertEqual(restored_x, original_x)
 
+    def test_format_mode_insets_right_edge_by_list_prefix_width(self):
+        _, row = self.add_task()
+        row.expand.emit("clicked")
+        self.window.create_popover.popup()
+        pump()
+        for view in (row.notes_view, self.window.create_description):
+            buffer = view.get_buffer()
+            for prefix in ("- ", "    - ", "\t- "):
+                with self.subTest(view=view, prefix=prefix):
+                    text = prefix + "x " * 250
+                    self.window.format_mode_check.set_active(False)
+                    buffer.set_text(text)
+                    pump()
+
+                    def right_edges():
+                        start = buffer.get_start_iter()
+                        edges = []
+                        for _ in range(2):
+                            self.assertTrue(view.forward_display_line(start))
+                            last = start.copy()
+                            last.backward_char()
+                            rect = view.get_iter_location(last)
+                            edges.append(rect.x + rect.width)
+                        return edges
+
+                    original_edges = right_edges()
+                    self.window.format_mode_check.set_active(True)
+                    pump()
+                    width, _ = view.create_pango_layout(prefix).get_pixel_size()
+                    char_width, _ = view.create_pango_layout("x ").get_pixel_size()
+                    tag = buffer.get_start_iter().get_tags()[0]
+                    self.assertEqual(tag.get_property("right-margin"),
+                                     view.get_right_margin() + width)
+                    for original, formatted in zip(original_edges, right_edges()):
+                        self.assertAlmostEqual(original - formatted, width,
+                                               delta=char_width)
+                    self.assertEqual(buffer.get_text(buffer.get_start_iter(),
+                                                     buffer.get_end_iter(), True), text)
+                    self.window.format_mode_check.set_active(False)
+                    pump()
+                    self.assertFalse(buffer.get_start_iter().get_tags())
+                    self.assertEqual(right_edges(), original_edges)
+
     def test_format_mode_applies_to_creation_and_survives_reopening(self):
         self.assertEqual(self.window.format_mode_check.get_label(), "Format mode")
         self.assertTrue(self.window.format_mode_check.get_active())

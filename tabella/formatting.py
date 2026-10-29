@@ -37,6 +37,7 @@ class DescriptionFormatter:
                     # Keep the paragraph margin unchanged so the dash stays put.
                     tag = buffer.create_tag(
                         None, left_margin=self.view.get_left_margin(),
+                        right_margin=self.view.get_right_margin() + width,
                         indent=-width,
                     )
                     tags_by_width[width] = tag
