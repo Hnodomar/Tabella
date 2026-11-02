@@ -13,6 +13,7 @@ from gi.repository import Gdk, Gio, GLib, GObject, Gtk, Pango
 
 from .formatting import DescriptionFormatter
 from .storage import STATUSES, Store
+from .text_styles import TextStyleToolbar
 
 
 SYMBOLS = ("○", "◐", "✓")
@@ -97,6 +98,7 @@ class Task(GObject.Object):
         self.group_ids = set(record["group_ids"])
         self.created_at = record["created_at"]
         self.body = None
+        self.body_styles = None
         self.expanded = False
         self.focus_title = False
         self.notes_height = None
@@ -271,7 +273,10 @@ class TaskRow(Gtk.Box):
     def show_details(self):
         try:
             if self.task.body is None:
-                self.task.body = self.window.store.body(self.task.id)
+                body = self.window.store.body(self.task.id)
+                styles = self.window.store.body_styles(self.task.id)
+                self.task.body = body
+                self.task.body_styles = styles
         except Exception as error:
             self.window.report_error(error)
             return False
@@ -280,6 +285,7 @@ class TaskRow(Gtk.Box):
             self.build_details()
         self.title_entry.set_text(self.task.title)
         self.body_buffer.set_text(self.task.body)
+        self.notes_toolbar.load(self.task.body_styles)
         self.apply_notes_height(self.task.notes_height)
         self.refresh_group_checks()
         self.loading = False
@@ -322,6 +328,11 @@ class TaskRow(Gtk.Box):
         self.notes_view = text
         self.notes_formatter = DescriptionFormatter(text, self.window.format_mode_enabled)
         self.body_buffer = text.get_buffer()
+        self.notes_toolbar = TextStyleToolbar(
+            text, self.window.format_mode_enabled,
+            on_style_changed=lambda: self.body_changed(self.body_buffer),
+        )
+        self.details.append(self.notes_toolbar)
         self.body_buffer.connect("changed", self.body_changed)
         self.notes_scroll = Gtk.ScrolledWindow(min_content_height=110, max_content_height=240)
         self.notes_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -398,9 +409,11 @@ class TaskRow(Gtk.Box):
         if self.loading or self.task is None:
             return
         body = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
-        if body != self.task.body:
+        styles = self.notes_toolbar.ranges()
+        if body != self.task.body or styles != self.task.body_styles:
             self.task.body = body
-            self.window.queue_edit(self.task, body=body)
+            self.task.body_styles = styles
+            self.window.queue_edit(self.task, body=body, body_styles=styles)
 
     def refresh_group_checks(self):
         for group in self.window.groups:
@@ -510,6 +523,8 @@ class TabellaWindow(Gtk.ApplicationWindow):
         self.create_description.update_property(
             [Gtk.AccessibleProperty.LABEL], ["New task description"]
         )
+        self.create_toolbar = TextStyleToolbar(self.create_description, self.format_mode_enabled)
+        self.create_menu.append(self.create_toolbar)
         description_scroll = Gtk.ScrolledWindow(min_content_height=80)
         description_scroll.set_has_frame(True)
         description_scroll.set_child(self.create_description)
@@ -606,7 +621,7 @@ class TabellaWindow(Gtk.ApplicationWindow):
             "toggled", self.toggle_ubuntu_theme
         )
         self.format_mode_check = Gtk.CheckButton(label="Format mode")
-        self.format_mode_check.set_tooltip_text("Align wrapped tab-indented rows and match their right inset")
+        self.format_mode_check.set_tooltip_text("Show text style controls and align wrapped tab-indented rows")
         self.format_mode_check.set_active(self.format_mode_enabled)
         self._format_mode_handler = self.format_mode_check.connect(
             "toggled", self.toggle_format_mode
@@ -760,9 +775,11 @@ class TabellaWindow(Gtk.ApplicationWindow):
             return
         self.format_mode_enabled = enabled
         self.create_formatter.set_enabled(enabled)
+        self.create_toolbar.set_enabled(enabled)
         for row in self.task_rows():
             if row.details is not None:
                 row.notes_formatter.set_enabled(enabled)
+                row.notes_toolbar.set_enabled(enabled)
         self.update_message(clear_error=True)
 
     def toggle_notes_resize(self, button):
@@ -812,6 +829,11 @@ class TabellaWindow(Gtk.ApplicationWindow):
             return
         editor, area = text_box
         target = self.pick(x, y, Gtk.PickFlags.DEFAULT)
+        for row in self.task_rows():
+            if row.details is not None and editor is row.notes_view:
+                toolbar = row.notes_toolbar
+                if target is not None and (target is toolbar or target.is_ancestor(toolbar)):
+                    return
         if target is None or not (target is area or target.is_ancestor(area)):
             GLib.idle_add(self.clear_text_focus, editor)
 
@@ -1051,7 +1073,9 @@ class TabellaWindow(Gtk.ApplicationWindow):
             self.report_error(ValueError(message), "Create task")
             return
         try:
-            record = self.store.add(title, group_ids, body=description)
+            record = self.store.add(
+                title, group_ids, body=description, body_styles=self.create_toolbar.ranges()
+            )
         except Exception as error:
             self.create_error.set_text(str(error))
             self.create_error.set_visible(True)
