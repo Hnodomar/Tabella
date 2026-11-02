@@ -1,3 +1,5 @@
+PYTHON ?= python3
+
 PREFIX ?= $(HOME)/.local
 APP_DIR := $(PREFIX)/share/Tabella
 ICON_DIR := $(PREFIX)/share/icons/hicolor/scalable/apps
@@ -5,13 +7,13 @@ ICON_DIR := $(PREFIX)/share/icons/hicolor/scalable/apps
 .PHONY: run test test-ui install
 
 run:
-	/usr/bin/python3 -m tabella
+	$(PYTHON) -m tabella
 
 test:
-	/usr/bin/python3 -m unittest discover -s tests -p 'test_storage.py' -v
+	$(PYTHON) -m unittest discover -s tests -p 'test_storage.py' -v
 
 test-ui:
-	/usr/bin/python3 -m unittest discover -s tests -p 'test_ui.py' -v
+	$(PYTHON) -m unittest discover -s tests -p 'test_ui.py' -v
 
 install:
 	install -d "$(DESTDIR)$(APP_DIR)/tabella/assets" "$(DESTDIR)$(PREFIX)/bin" "$(DESTDIR)$(PREFIX)/share/applications" "$(DESTDIR)$(ICON_DIR)"

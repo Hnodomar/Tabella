@@ -1,0 +1,3 @@
+# Python binding for GTK 4, GLib, Gio and Pango (imported as gi).
+# GTK 4 and introspection data are native packages; see README.md.
+PyGObject>=3.42
