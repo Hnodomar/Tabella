@@ -1,7 +1,8 @@
 # Tabella
 
-A lightweight native Ubuntu desktop task list using GTK 4, system Python, and
-SQLite. No pip dependencies, browser runtime, server, or network connection.
+A lightweight native Ubuntu desktop task list using GTK 4, Python 3, and
+SQLite. Uses PyGObject for GTK bindings, with no browser runtime, server, or
+network connection required to run.
 
 Created for my personal use, but easy for anyone else to use it too.
 
@@ -34,8 +35,40 @@ sudo apt install python3 python3-gi gir1.2-gtk-4.0
 Then run from this repository:
 
 ```sh
-./Tabella
+make run
 ```
+
+`make run`, `make test` and `make test-ui` use `python3` from your `PATH`.
+An activated virtual environment therefore supplies their interpreter. Override
+it explicitly with `make run PYTHON=/path/to/venv/bin/python`, or select Ubuntu's
+interpreter with `make run PYTHON=/usr/bin/python3`. Tabella is loaded directly
+from the current checkout, so it does not need a system-wide package install.
+
+### Virtual environment
+
+For development on Ubuntu, reuse the distribution's GTK bindings in a virtual
+environment created with the distribution's Python:
+
+```sh
+sudo apt install python3-venv python3-gi gir1.2-gtk-4.0
+/usr/bin/python3 -m venv --system-site-packages .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+make run
+```
+
+`requirements.txt` lists the Python dependency, PyGObject (`gi`). The
+`--system-site-packages` option lets the virtual environment use Ubuntu's
+installed copy while keeping development packages in the virtual environment.
+GTK 4 and its introspection data still come from Ubuntu packages.
+
+For a fully isolated environment, install the native build dependencies for
+your Ubuntu and PyGObject versions before installing `requirements.txt`; see
+the [PyGObject installation guide](https://pygobject.gnome.org/getting_started.html#ubuntu-debian)
+and [system dependency compatibility](https://pygobject.gnome.org/guide/sysdeps.html).
+
+The `./Tabella` desktop launcher continues to use Ubuntu's `/usr/bin/python3`.
+Use `make run` to launch the current checkout with a virtual environment.
 
 To add Tabella to your application menu:
 
