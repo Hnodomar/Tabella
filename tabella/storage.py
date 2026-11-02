@@ -2,6 +2,7 @@
 
 from contextlib import closing
 from datetime import datetime, timezone
+import json
 import os
 from pathlib import Path
 import sqlite3
@@ -56,7 +57,7 @@ class Store:
             self.db.execute("PRAGMA journal_mode = WAL")
             self.db.execute("PRAGMA synchronous = FULL")
             version = self.db.execute("PRAGMA user_version").fetchone()[0]
-            if version > 5:
+            if version > 6:
                 raise RuntimeError("This task database was created by a newer version of the app.")
             with self.db:
                 self.db.execute("""
@@ -163,6 +164,13 @@ class Store:
                     )
                     self.db.execute("DELETE FROM groups WHERE id = 0")
                     self.db.execute("PRAGMA user_version = 5")
+                if version < 6:
+                    columns = {row["name"] for row in self.db.execute("PRAGMA table_info(tasks)")}
+                    if "body_styles" not in columns:
+                        self.db.execute(
+                            "ALTER TABLE tasks ADD COLUMN body_styles TEXT NOT NULL DEFAULT '[]'"
+                        )
+                    self.db.execute("PRAGMA user_version = 6")
                 self.db.execute(
                     "CREATE INDEX IF NOT EXISTS tasks_sort_order_idx ON tasks(sort_order, id DESC)"
                 )
@@ -224,6 +232,27 @@ class Store:
         if row is None:
             raise LookupError("Task no longer exists.")
         return row["body"]
+
+    def body_styles(self, task_id):
+        """Return character ranges styled independently of the plain-text body."""
+        row = self.db.execute(
+            "SELECT body_styles FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
+        if row is None:
+            raise LookupError("Task no longer exists.")
+        return json.loads(row["body_styles"])
+
+    @staticmethod
+    def _encode_body_styles(body, styles):
+        if not isinstance(styles, list):
+            raise ValueError("Text styles must be a list of ranges.")
+        for span in styles:
+            if (not isinstance(span, dict) or set(span) != {"style", "start", "end"}
+                    or span["style"] not in ("bold", "italic", "underline")
+                    or type(span["start"]) is not int or type(span["end"]) is not int
+                    or not 0 <= span["start"] < span["end"] <= len(body)):
+                raise ValueError("Invalid text style range.")
+        return json.dumps(styles, ensure_ascii=False)
 
     def internal_theme(self):
         row = self.db.execute(
@@ -311,7 +340,7 @@ class Store:
                 (("internal_theme", mode), ("ubuntu_theme", "1" if use_ubuntu_theme else "0")),
             )
 
-    def add(self, title, group_ids, body=""):
+    def add(self, title, group_ids, body="", body_styles=None):
         if not isinstance(title, str):
             raise ValueError("A title is required.")
         title = title.strip()
@@ -320,12 +349,13 @@ class Store:
         group_ids = self._valid_group_ids(group_ids)
         if not isinstance(body, str):
             raise ValueError("Description must be text.")
+        styles = self._encode_body_styles(body, [] if body_styles is None else body_styles)
         created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with self.db:
             cursor = self.db.execute(
-                "INSERT INTO tasks (title, body, created_at, sort_order) "
-                "VALUES (?, ?, ?, COALESCE((SELECT MIN(sort_order) - 1 FROM tasks), 0))",
-                (title, body, created_at),
+                "INSERT INTO tasks (title, body, body_styles, created_at, sort_order) "
+                "VALUES (?, ?, ?, ?, COALESCE((SELECT MIN(sort_order) - 1 FROM tasks), 0))",
+                (title, body, styles, created_at),
             )
             self.db.executemany(
                 "INSERT INTO task_groups (task_id, group_id) VALUES (?, ?)",
@@ -387,7 +417,7 @@ class Store:
         return ids
 
     def update(self, task_id, **fields):
-        if not fields or fields.keys() - {"title", "body", "status", "group_ids"}:
+        if not fields or fields.keys() - {"title", "body", "body_styles", "status", "group_ids"}:
             raise ValueError("Invalid task fields.")
         if "title" in fields:
             fields["title"] = fields["title"].strip()
@@ -395,6 +425,14 @@ class Store:
                 raise ValueError("A title is required.")
         if "status" in fields and (type(fields["status"]) is not int or fields["status"] not in range(3)):
             raise ValueError("Invalid status.")
+        if "body_styles" in fields:
+            body = fields["body"] if "body" in fields else self.body(task_id)
+            if not isinstance(body, str):
+                raise ValueError("Description must be text.")
+            fields["body_styles"] = self._encode_body_styles(body, fields["body_styles"])
+        elif "body" in fields:
+            # Plain-text callers replace the body without carrying stale offsets.
+            fields["body_styles"] = "[]"
         has_group_ids = "group_ids" in fields
         group_ids = fields.pop("group_ids", None)
         if has_group_ids:

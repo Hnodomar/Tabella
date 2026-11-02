@@ -39,6 +39,68 @@ class StorageTests(unittest.TestCase):
                                      created_at=created, group_ids=(self.general_id,)))
         self.assertEqual(self.store.body(task["id"]), body)
 
+    def test_text_styles_survive_restart_export_and_plain_text_replacement(self):
+        styles = [dict(style="bold", start=0, end=3),
+                  dict(style="italic", start=1, end=4),
+                  dict(style="underline", start=0, end=4)]
+        task = self.store.add("Styled", (self.general_id,), body="A😀日本", body_styles=styles)
+        self.store.close()
+        self.store = Store(self.path)
+        self.assertEqual(self.store.body(task["id"]), "A😀日本")
+        self.assertEqual(self.store.body_styles(task["id"]), styles)
+        self.assertNotIn("body_styles", self.store.list_tasks()[0])
+        backup = Path(self.directory.name) / "backup.sqlite3"
+        self.store.export(backup)
+        copy = Store(backup)
+        try:
+            self.assertEqual(copy.body_styles(task["id"]), styles)
+        finally:
+            copy.close()
+        self.store.update(task["id"], body_styles=styles[:1])
+        self.assertEqual(self.store.body_styles(task["id"]), styles[:1])
+        self.store.update(task["id"], body="Replacement")
+        self.assertEqual(self.store.body_styles(task["id"]), [])
+        with self.assertRaises(LookupError):
+            self.store.body_styles(999)
+        with self.assertRaises(LookupError):
+            self.store.update(999, body_styles=[])
+
+    def test_text_styles_validate_ranges_and_save_atomically(self):
+        task = self.store.add("Original", (self.general_id,), body="Text")
+        for styles in (None, {}, ["bold"], [dict(style="strikethrough", start=0, end=1)],
+                       [dict(style="bold", start=-1, end=1)],
+                       [dict(style="bold", start=0, end=5)],
+                       [dict(style="bold", start=2, end=2)],
+                       [dict(style="bold", start=True, end=2)],
+                       [dict(style="bold", start=0, end=1, extra=1)]):
+            with self.subTest(styles=styles):
+                with self.assertRaises(ValueError):
+                    self.store.update(task["id"], title="Changed", body_styles=styles)
+                if styles is not None:
+                    with self.assertRaises(ValueError):
+                        self.store.add("Invalid", (self.general_id,), body="Text", body_styles=styles)
+        self.assertEqual(self.store.list_tasks()[0]["title"], "Original")
+        self.assertEqual(len(self.store.list_tasks()), 1)
+        self.assertEqual(self.store.body_styles(task["id"]), [])
+        styles = [dict(style="bold", start=0, end=4)]
+        self.store.update(task["id"], body="Longer text", body_styles=styles)
+        self.assertEqual(self.store.body_styles(task["id"]), styles)
+        with self.assertRaises(ValueError):
+            self.store.update(task["id"], body="X", body_styles=styles)
+        self.assertEqual(self.store.body(task["id"]), "Longer text")
+        self.assertEqual(self.store.body_styles(task["id"]), styles)
+
+    def test_version_five_descriptions_gain_empty_styles(self):
+        task = self.store.add("Existing", (self.general_id,), body="Plain notes")
+        self.store.close()
+        with sqlite3.connect(self.path) as db:
+            db.execute("ALTER TABLE tasks DROP COLUMN body_styles")
+            db.execute("PRAGMA user_version = 5")
+        self.store = Store(self.path)
+        self.assertEqual(self.store.body(task["id"]), "Plain notes")
+        self.assertEqual(self.store.body_styles(task["id"]), [])
+        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 6)
+
     def test_newest_first_and_deletion_persists(self):
         first = self.add_task("First")
         second = self.add_task("Second")
@@ -148,7 +210,7 @@ class StorageTests(unittest.TestCase):
         try:
             self.assertEqual([row["id"] for row in old_store.list_tasks()], [7, 2])
             self.assertEqual(old_store.body(2), "Old note")
-            self.assertEqual(old_store.db.execute("PRAGMA user_version").fetchone()[0], 5)
+            self.assertEqual(old_store.db.execute("PRAGMA user_version").fetchone()[0], 6)
             self.assertEqual([row["group_ids"] for row in old_store.list_tasks()], [(old_store.list_groups()[0]["id"],)] * 2)
             old_store.move(2, 0)
             self.assertEqual([row["id"] for row in old_store.list_tasks()], [2, 7])
@@ -200,10 +262,10 @@ class StorageTests(unittest.TestCase):
             self.store.update(999, title="Missing")
 
     def test_future_database_version_is_rejected(self):
-        self.store.db.execute("PRAGMA user_version = 6")
+        self.store.db.execute("PRAGMA user_version = 7")
         with self.assertRaises(RuntimeError):
             Store(self.path)
-        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 6)
+        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 7)
 
     def test_groups_and_selection_persist_with_task_assignment(self):
         task = self.add_task("Task")
@@ -286,7 +348,7 @@ class StorageTests(unittest.TestCase):
             db.execute("PRAGMA user_version = 3")
         self.store = Store(self.path)
         self.assertEqual(self.store.list_tasks()[0]["group_ids"], (group["id"],))
-        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 5)
+        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 6)
 
     def test_version_four_ungrouped_tasks_move_to_general(self):
         task = self.add_task("Existing")
@@ -313,7 +375,7 @@ class StorageTests(unittest.TestCase):
         with sqlite3.connect(destination) as backup:
             self.assertEqual(backup.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             self.assertEqual(backup.execute("PRAGMA journal_mode").fetchone()[0], "delete")
-            self.assertEqual(backup.execute("PRAGMA user_version").fetchone()[0], 5)
+            self.assertEqual(backup.execute("PRAGMA user_version").fetchone()[0], 6)
             self.assertEqual(backup.execute(
                 "SELECT title, body, status FROM tasks"
             ).fetchone(), ("Prepare report", "Detailed notes", 1))
@@ -368,7 +430,7 @@ class StorageTests(unittest.TestCase):
                 for table in ("tasks", "groups", "task_groups", "settings", "app_preferences", "preferences"):
                     self.assertEqual(migrated.execute(f"SELECT * FROM {table}").fetchall(),
                                      [tuple(row) for row in previous.db.execute(f"SELECT * FROM {table}")])
-                self.assertEqual(migrated.execute("PRAGMA user_version").fetchone()[0], 5)
+                self.assertEqual(migrated.execute("PRAGMA user_version").fetchone()[0], 6)
                 self.assertEqual(migrated.execute("SELECT body FROM tasks").fetchone()[0],
                                  "Note still in WAL")
             self.assertTrue(source.exists())

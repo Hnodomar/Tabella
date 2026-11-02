@@ -301,6 +301,120 @@ class UiTests(unittest.TestCase):
         self.assertTrue(self.store.drag_handle_enabled())
         self.assertIn("disk is full", self.window.message.get_text())
 
+    def test_style_toolbar_toggles_combined_and_mixed_selections(self):
+        _, row = self.add_task()
+        row.expand.emit("clicked")
+        buffer = row.body_buffer
+        toolbar = row.notes_toolbar
+        buffer.set_text("A😀日本 text")
+        self.assertTrue(toolbar.get_visible())
+        self.assertTrue(all(not button.get_sensitive() for button in toolbar.buttons.values()))
+        buffer.select_range(buffer.get_iter_at_offset(0), buffer.get_iter_at_offset(4))
+        for style, button in toolbar.buttons.items():
+            self.assertTrue(button.get_sensitive())
+            self.assertFalse(button.get_focus_on_click())
+            button.emit("clicked")
+            self.assertTrue(button.get_active())
+            self.assertTrue(buffer.get_iter_at_offset(1).has_tag(toolbar.tags[style]))
+        self.assertEqual(len(toolbar.ranges()), 3)
+        self.assertEqual([span["end"] for span in toolbar.ranges()], [4, 4, 4])
+        buffer.select_range(buffer.get_iter_at_offset(1), buffer.get_iter_at_offset(3))
+        toolbar.buttons["bold"].emit("clicked")
+        self.assertFalse(buffer.get_iter_at_offset(1).has_tag(toolbar.tags["bold"]))
+        self.assertTrue(buffer.get_iter_at_offset(1).has_tag(toolbar.tags["italic"]))
+        buffer.select_range(buffer.get_iter_at_offset(0), buffer.get_iter_at_offset(4))
+        self.assertFalse(toolbar.buttons["bold"].get_active())
+        toolbar.buttons["bold"].emit("clicked")
+        self.assertTrue(toolbar.buttons["bold"].get_active())
+        buffer.place_cursor(buffer.get_end_iter())
+        self.assertFalse(toolbar.buttons["bold"].get_sensitive())
+        toolbar.buttons["bold"].emit("clicked")
+        self.assertFalse(toolbar.buttons["bold"].get_active())
+
+    def test_styles_follow_text_edits_and_survive_rebinding_and_restart(self):
+        task, row = self.add_task()
+        row.expand.emit("clicked")
+        buffer = row.body_buffer
+        buffer.set_text("prefix styled suffix")
+        buffer.select_range(buffer.get_iter_at_offset(7), buffer.get_iter_at_offset(13))
+        row.notes_toolbar.buttons["bold"].emit("clicked")
+        buffer.insert(buffer.get_start_iter(), "😀")
+        buffer.delete(buffer.get_iter_at_offset(9), buffer.get_iter_at_offset(11))
+        expected = [dict(style="bold", start=8, end=12)]
+        self.assertEqual(row.notes_toolbar.ranges(), expected)
+        self.window.format_mode_check.set_active(False)
+        self.assertFalse(row.notes_toolbar.get_visible())
+        self.assertFalse(self.window.create_toolbar.get_visible())
+        self.assertEqual(row.notes_toolbar.ranges(), expected)
+        row.expand.emit("clicked")
+        row.expand.emit("clicked")
+        self.assertEqual(row.notes_toolbar.ranges(), expected)
+        self.assertTrue(self.window.flush())
+        self.assertEqual(self.store.body_styles(task.id), expected)
+        self.window.destroy()
+        pump()
+        self.store.close()
+        self.store = Store(Path(self.directory.name) / "tasks.sqlite3")
+        self.window = TabellaWindow(self.application, self.store)
+        self.window.present()
+        pump()
+        row = next(w for w in descendants(self.window.list)
+                   if isinstance(w, TaskRow) and w.task is not None)
+        row.expand.emit("clicked")
+        self.assertEqual(row.notes_toolbar.ranges(), expected)
+        self.assertFalse(row.notes_toolbar.get_visible())
+        self.window.format_mode_check.set_active(True)
+        self.assertTrue(row.notes_toolbar.get_visible())
+        self.assertTrue(self.window.create_toolbar.get_visible())
+        self.assertEqual(row.notes_toolbar.ranges(), expected)
+
+    def test_creation_saves_styles_and_clears_them_for_next_task(self):
+        self.window.add_button.popup()
+        buffer = self.window.create_description.get_buffer()
+        buffer.set_text("Description")
+        buffer.select_range(buffer.get_start_iter(), buffer.get_end_iter())
+        self.window.create_toolbar.buttons["underline"].emit("clicked")
+        task, row = self.add_task("Styled task")
+        row.expand.emit("clicked")
+        expected = [dict(style="underline", start=0, end=11)]
+        self.assertEqual(self.store.body_styles(task.id), expected)
+        self.assertEqual(row.notes_toolbar.ranges(), expected)
+        self.assertEqual(self.window.create_toolbar.ranges(), [])
+        self.assertFalse(self.window.create_toolbar.buttons["underline"].get_sensitive())
+
+    def test_toolbar_click_preserves_notes_focus_and_selection(self):
+        _, row = self.add_task()
+        row.expand.emit("clicked")
+        row.notes_view.grab_focus()
+        buffer = row.body_buffer
+        buffer.set_text("Select this")
+        buffer.select_range(buffer.get_start_iter(), buffer.get_end_iter())
+        pump()
+        button = row.notes_toolbar.buttons["bold"]
+        bounds = button.compute_bounds(self.window)[1]
+        self.window.on_window_press(None, 1, bounds.get_x() + bounds.get_width() / 2,
+                                    bounds.get_y() + bounds.get_height() / 2)
+        button.emit("clicked")
+        pump()
+        self.assertIs(self.window.get_focus(), row.notes_view)
+        self.assertTrue(buffer.get_has_selection())
+        self.assertTrue(button.get_active())
+
+    def test_style_only_changes_retry_after_save_failure(self):
+        task, row = self.add_task()
+        row.expand.emit("clicked")
+        buffer = row.body_buffer
+        buffer.set_text("Notes")
+        self.assertTrue(self.window.flush())
+        buffer.select_range(buffer.get_start_iter(), buffer.get_end_iter())
+        row.notes_toolbar.buttons["italic"].emit("clicked")
+        with patch.object(self.store, "update", side_effect=sqlite3.OperationalError("disk full")):
+            self.assertFalse(self.window.flush())
+        self.assertEqual(self.store.body_styles(task.id), [])
+        self.assertIn(task.id, self.window.pending)
+        self.assertTrue(self.window.flush())
+        self.assertEqual(self.store.body_styles(task.id), [dict(style="italic", start=0, end=5)])
+
     def test_format_mode_wraps_at_first_word_and_preserves_saved_text(self):
         task, row = self.add_task()
         row.expand.emit("clicked")
