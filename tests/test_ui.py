@@ -301,6 +301,29 @@ class UiTests(unittest.TestCase):
         self.assertTrue(self.store.drag_handle_enabled())
         self.assertIn("disk is full", self.window.message.get_text())
 
+    def test_format_bar_height_fits_symbols_with_a_few_pixels_of_padding(self):
+        _, row = self.add_task()
+        row.expand.emit("clicked")
+        self.window.add_button.popup()
+        pump()
+        for toolbar in (row.notes_toolbar, self.window.create_toolbar):
+            for active in (False, True):
+                for button in toolbar.buttons.values():
+                    button.set_active(active)
+                pump()
+                for style, button in toolbar.buttons.items():
+                    with self.subTest(toolbar=toolbar, style=style, active=active):
+                        symbol = button.get_child()
+                        _, bounds = symbol.compute_bounds(toolbar)
+                        top_gap = bounds.get_y()
+                        bottom_gap = toolbar.get_height() - top_gap - bounds.get_height()
+                        self.assertGreater(bounds.get_height(), 0)
+                        self.assertGreaterEqual(top_gap, 2)
+                        self.assertLessEqual(top_gap, 4)
+                        self.assertGreaterEqual(bottom_gap, 2)
+                        self.assertLessEqual(bottom_gap, 4)
+                        self.assertLessEqual(toolbar.get_height(), symbol.get_height() + 8)
+
     def test_editor_headers_share_border_and_remain_above_scrolling_text(self):
         _, row = self.add_task()
         row.expand.emit("clicked")

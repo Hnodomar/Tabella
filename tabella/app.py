@@ -52,6 +52,17 @@ APP_CSS = b"""
     headerbar.compact-titlebar .group-control > menubutton > button:hover {
         background: alpha(currentColor, 0.08);
     }
+    .format-bar {
+        min-height: 0;
+        padding: 2px 4px;
+        margin: 0;
+    }
+    .format-bar button {
+        min-height: 0;
+        min-width: 0;
+        padding: 1px 4px;
+        margin: 0;
+    }
     button.remove-group-trash {
         color: #c01c28;
     }
