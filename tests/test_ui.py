@@ -301,6 +301,66 @@ class UiTests(unittest.TestCase):
         self.assertTrue(self.store.drag_handle_enabled())
         self.assertIn("disk is full", self.window.message.get_text())
 
+    def test_editor_headers_share_border_and_remain_above_scrolling_text(self):
+        _, row = self.add_task()
+        row.expand.emit("clicked")
+        row.body_buffer.set_text("Notes line\n" * 100)
+        self.window.add_button.popup()
+        self.window.create_description.get_buffer().set_text("Description line\n" * 100)
+        pump()
+        for frame, toolbar, view in (
+            (row.notes_editor, row.notes_toolbar, row.notes_view),
+            (self.window.create_editor, self.window.create_toolbar,
+             self.window.create_description),
+        ):
+            with self.subTest(editor=view):
+                self.assertTrue(toolbar.is_ancestor(frame))
+                self.assertTrue(view.is_ancestor(frame))
+                scroll = view.get_parent()
+                self.assertIsInstance(scroll, Gtk.ScrolledWindow)
+                self.assertFalse(scroll.get_has_frame())
+                _, header_bounds = toolbar.compute_bounds(frame)
+                _, text_bounds = scroll.compute_bounds(frame)
+                self.assertGreater(header_bounds.get_height(), 0)
+                self.assertGreaterEqual(header_bounds.get_y(), 0)
+                self.assertGreaterEqual(text_bounds.get_y(),
+                                        header_bounds.get_y() + header_bounds.get_height())
+                self.assertTrue(frame.separator.get_visible())
+                adjustment = scroll.get_vadjustment()
+                adjustment.set_value(adjustment.get_upper() - adjustment.get_page_size())
+                pump()
+                self.assertGreater(adjustment.get_value(), 0)
+                _, scrolled_header_bounds = toolbar.compute_bounds(frame)
+                self.assertEqual(scrolled_header_bounds.get_y(), header_bounds.get_y())
+                self.assertEqual(scrolled_header_bounds.get_height(), header_bounds.get_height())
+                _, scrolled_text_bounds = scroll.compute_bounds(frame)
+                self.assertEqual(scrolled_text_bounds.get_y(), text_bounds.get_y())
+
+    def test_hidden_editor_headers_leave_no_separator_or_empty_space(self):
+        # Build both editors with format mode already disabled.
+        self.window.format_mode_check.set_active(False)
+        _, row = self.add_task()
+        row.expand.emit("clicked")
+        self.window.add_button.popup()
+        pump()
+        for enabled in (False, True, False):
+            self.window.format_mode_check.set_active(enabled)
+            pump()
+            for frame, toolbar, view in (
+                (row.notes_editor, row.notes_toolbar, row.notes_view),
+                (self.window.create_editor, self.window.create_toolbar,
+                 self.window.create_description),
+            ):
+                with self.subTest(enabled=enabled, editor=view):
+                    self.assertEqual(toolbar.get_visible(), enabled)
+                    self.assertEqual(frame.separator.get_visible(), enabled)
+                    _, text_bounds = view.get_parent().compute_bounds(frame)
+                    if enabled:
+                        self.assertGreater(text_bounds.get_y(), toolbar.get_height())
+                    else:
+                        # Only the native outer frame's border remains above the text.
+                        self.assertLessEqual(text_bounds.get_y(), 2)
+
     def test_style_toolbar_toggles_combined_and_mixed_selections(self):
         _, row = self.add_task()
         row.expand.emit("clicked")
@@ -781,7 +841,8 @@ class UiTests(unittest.TestCase):
         pump()
         self.assertFalse(focused_in(row.notes_view))
         self.assertTrue(row.notes_scroll.get_visible())
-        self.assertTrue(row.notes_scroll.get_has_frame())
+        self.assertFalse(row.notes_scroll.get_has_frame())
+        self.assertIsInstance(row.notes_editor, Gtk.Frame)
         self.window.flush()
         self.assertEqual(self.store.body(task.id), "Remember this")
 
