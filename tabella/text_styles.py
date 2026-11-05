@@ -22,6 +22,7 @@ class TextStyleToolbar(Gtk.Box):
         }
         self.buttons = {}
         self.add_css_class("toolbar")
+        self.add_css_class("format-bar")
         self.update_property([Gtk.AccessibleProperty.LABEL], ["Text formatting"])
         for style, markup in (("bold", "<b>B</b>"), ("italic", "<i>I</i>"),
                               ("underline", "<u>U</u>")):
