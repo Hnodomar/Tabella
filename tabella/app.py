@@ -13,6 +13,7 @@ from gi.repository import Gdk, Gio, GLib, GObject, Gtk, Pango
 
 from .formatting import DescriptionFormatter
 from .storage import STATUSES, Store
+from .text_editor import TextEditorFrame
 from .text_styles import TextStyleToolbar
 
 
@@ -332,11 +333,9 @@ class TaskRow(Gtk.Box):
             text, self.window.format_mode_enabled,
             on_style_changed=lambda: self.body_changed(self.body_buffer),
         )
-        self.details.append(self.notes_toolbar)
         self.body_buffer.connect("changed", self.body_changed)
         self.notes_scroll = Gtk.ScrolledWindow(min_content_height=110, max_content_height=240)
         self.notes_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.notes_scroll.set_has_frame(True)
         self.notes_scroll.set_child(text)
         notes_overlay = Gtk.Overlay()
         notes_overlay.set_child(self.notes_scroll)
@@ -356,7 +355,8 @@ class TaskRow(Gtk.Box):
         self.notes_resize_drag.connect("drag-update", self.update_notes_resize)
         self.notes_resize_handle.add_controller(self.notes_resize_drag)
         notes_overlay.add_overlay(self.notes_resize_handle)
-        self.details.append(notes_overlay)
+        self.notes_editor = TextEditorFrame(self.notes_toolbar, notes_overlay)
+        self.details.append(self.notes_editor)
         delete = Gtk.Button(label="Delete task", halign=Gtk.Align.START)
         delete.add_css_class("destructive-action")
         delete.connect("clicked", lambda *_: self.window.confirm_delete(self.task))
@@ -524,11 +524,10 @@ class TabellaWindow(Gtk.ApplicationWindow):
             [Gtk.AccessibleProperty.LABEL], ["New task description"]
         )
         self.create_toolbar = TextStyleToolbar(self.create_description, self.format_mode_enabled)
-        self.create_menu.append(self.create_toolbar)
         description_scroll = Gtk.ScrolledWindow(min_content_height=80)
-        description_scroll.set_has_frame(True)
         description_scroll.set_child(self.create_description)
-        self.create_menu.append(description_scroll)
+        self.create_editor = TextEditorFrame(self.create_toolbar, description_scroll)
+        self.create_menu.append(self.create_editor)
         self.create_menu.append(Gtk.Label(label="Groups", xalign=0))
         self.create_group_checks = {}
         self.create_groups_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -818,7 +817,7 @@ class TabellaWindow(Gtk.ApplicationWindow):
             if row.task is None or row.details is None or not row.details.get_visible():
                 continue
             for editor, area in ((row.title_entry, row.title_entry),
-                                 (row.notes_view, row.notes_scroll)):
+                                 (row.notes_view, row.notes_editor)):
                 if focused is editor or focused.is_ancestor(editor):
                     return editor, area
         return None
@@ -829,11 +828,6 @@ class TabellaWindow(Gtk.ApplicationWindow):
             return
         editor, area = text_box
         target = self.pick(x, y, Gtk.PickFlags.DEFAULT)
-        for row in self.task_rows():
-            if row.details is not None and editor is row.notes_view:
-                toolbar = row.notes_toolbar
-                if target is not None and (target is toolbar or target.is_ancestor(toolbar)):
-                    return
         if target is None or not (target is area or target.is_ancestor(area)):
             GLib.idle_add(self.clear_text_focus, editor)
 
