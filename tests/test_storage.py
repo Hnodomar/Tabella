@@ -481,6 +481,38 @@ class StorageTests(unittest.TestCase):
         self.store.set_drag_handle_enabled(True)
         self.assertTrue(self.store.drag_handle_enabled())
 
+    def test_format_bar_preference_is_validated_and_persists_independently(self):
+        self.assertTrue(self.store.format_bar_enabled())
+        self.assertEqual(self.store.db.execute(
+            "SELECT value FROM preferences WHERE key = 'show_format_bar'"
+        ).fetchone()[0], "1")
+        for invalid in (None, 0, 1, "false", [], 1.0):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                self.store.set_format_bar_enabled(invalid)
+        for mode, bar in ((False, True), (True, False), (False, False), (True, True)):
+            with self.subTest(mode=mode, bar=bar):
+                self.store.set_format_mode_enabled(mode)
+                self.store.set_format_bar_enabled(bar)
+                self.store.close()
+                self.store = Store(self.path)
+                self.assertEqual(self.store.format_mode_enabled(), mode)
+                self.assertEqual(self.store.format_bar_enabled(), bar)
+
+    def test_existing_database_gains_format_bar_setting_without_changing_notes(self):
+        styles = [dict(style="bold", start=0, end=4)]
+        task = self.store.add("Existing task", (self.general_id,),
+                              body="Bold notes", body_styles=styles)
+        self.store.set_format_mode_enabled(False)
+        with self.store.db:
+            self.store.db.execute("DELETE FROM preferences WHERE key = 'show_format_bar'")
+        self.assertTrue(self.store.format_bar_enabled())
+        self.store.close()
+        self.store = Store(self.path)
+        self.assertTrue(self.store.format_bar_enabled())
+        self.assertFalse(self.store.format_mode_enabled())
+        self.assertEqual(self.store.body(task["id"]), "Bold notes")
+        self.assertEqual(self.store.body_styles(task["id"]), styles)
+
     def test_format_mode_defaults_are_saved_and_changes_survive_restart(self):
         self.assertTrue(self.store.format_mode_enabled())
         self.assertEqual(self.store.db.execute(

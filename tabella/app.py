@@ -330,7 +330,7 @@ class TaskRow(Gtk.Box):
         self.notes_formatter = DescriptionFormatter(text, self.window.format_mode_enabled)
         self.body_buffer = text.get_buffer()
         self.notes_toolbar = TextStyleToolbar(
-            text, self.window.format_mode_enabled,
+            text, self.window.format_bar_enabled,
             on_style_changed=lambda: self.body_changed(self.body_buffer),
         )
         self.body_buffer.connect("changed", self.body_changed)
@@ -482,6 +482,7 @@ class TabellaWindow(Gtk.ApplicationWindow):
         self.drag_handle_enabled = store.drag_handle_enabled()
         self.notes_resize_enabled = store.notes_resize_enabled()
         self.format_mode_enabled = store.format_mode_enabled()
+        self.format_bar_enabled = store.format_bar_enabled()
         self.status_sort_descending = False
         self.groups = [dict(row) for row in store.list_groups()]
         self.selected_groups = {group["id"] for group in self.groups if group["selected"]}
@@ -523,7 +524,7 @@ class TabellaWindow(Gtk.ApplicationWindow):
         self.create_description.update_property(
             [Gtk.AccessibleProperty.LABEL], ["New task description"]
         )
-        self.create_toolbar = TextStyleToolbar(self.create_description, self.format_mode_enabled)
+        self.create_toolbar = TextStyleToolbar(self.create_description, self.format_bar_enabled)
         description_scroll = Gtk.ScrolledWindow(min_content_height=80)
         description_scroll.set_child(self.create_description)
         self.create_editor = TextEditorFrame(self.create_toolbar, description_scroll)
@@ -620,12 +621,19 @@ class TabellaWindow(Gtk.ApplicationWindow):
             "toggled", self.toggle_ubuntu_theme
         )
         self.format_mode_check = Gtk.CheckButton(label="Format mode")
-        self.format_mode_check.set_tooltip_text("Show text style controls and align wrapped tab-indented rows")
+        self.format_mode_check.set_tooltip_text("Align wrapped tab-indented rows and match their right inset")
         self.format_mode_check.set_active(self.format_mode_enabled)
         self._format_mode_handler = self.format_mode_check.connect(
             "toggled", self.toggle_format_mode
         )
         settings_menu.append(self.format_mode_check)
+        self.format_bar_check = Gtk.CheckButton(label="Show format bar")
+        self.format_bar_check.set_tooltip_text("Show Bold, Italic and Underline controls in text boxes")
+        self.format_bar_check.set_active(self.format_bar_enabled)
+        self._format_bar_handler = self.format_bar_check.connect(
+            "toggled", self.toggle_format_bar
+        )
+        settings_menu.append(self.format_bar_check)
         settings_menu.append(self.ubuntu_theme_check)
         self.drag_handle_check = Gtk.CheckButton(label="Show drag handle")
         self.drag_handle_check.set_active(self.drag_handle_enabled)
@@ -774,10 +782,27 @@ class TabellaWindow(Gtk.ApplicationWindow):
             return
         self.format_mode_enabled = enabled
         self.create_formatter.set_enabled(enabled)
-        self.create_toolbar.set_enabled(enabled)
         for row in self.task_rows():
             if row.details is not None:
                 row.notes_formatter.set_enabled(enabled)
+        self.update_message(clear_error=True)
+
+    def toggle_format_bar(self, button):
+        enabled = button.get_active()
+        if enabled == self.format_bar_enabled:
+            return
+        try:
+            self.store.set_format_bar_enabled(enabled)
+        except Exception as error:
+            button.handler_block(self._format_bar_handler)
+            button.set_active(self.format_bar_enabled)
+            button.handler_unblock(self._format_bar_handler)
+            self.report_error(error)
+            return
+        self.format_bar_enabled = enabled
+        self.create_toolbar.set_enabled(enabled)
+        for row in self.task_rows():
+            if row.details is not None:
                 row.notes_toolbar.set_enabled(enabled)
         self.update_message(clear_error=True)
 
