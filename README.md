@@ -11,11 +11,11 @@ Created for my personal use, but easy for anyone else to use it too.
 ### Features
 - Task tracking with titles, grouping, descriptions and completion statuses
 - Persistence for all task data and settings
-- Format mode (enabled by default): select text and use Bold, Italic or
-  Underline in the header inside descriptions and Notes; styles can be combined and
-  are saved automatically. Tab-indented rows wrap under their first word with
-  a matching right inset. Toggle format mode in Settings to hide the toolbar
-  and disable paragraph alignment; saved text styles remain visible.
+- Format mode (enabled by default): tab-indented rows wrap under their first
+  word with a matching right inset; toggle paragraph alignment in Settings.
+- Show format bar (enabled by default): toggle the Bold, Italic and Underline
+  header inside descriptions and Notes independently of Format mode. Styles
+  can be combined and are saved automatically; hiding the bar preserves them.
 - Group visibility toggling
 - Dark mode
 - System theme opt-in/out

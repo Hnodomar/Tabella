@@ -337,14 +337,14 @@ class UiTests(unittest.TestCase):
                 self.assertEqual(scrolled_text_bounds.get_y(), text_bounds.get_y())
 
     def test_hidden_editor_headers_leave_no_separator_or_empty_space(self):
-        # Build both editors with format mode already disabled.
-        self.window.format_mode_check.set_active(False)
+        # Build both editors with the format bar already hidden.
+        self.window.format_bar_check.set_active(False)
         _, row = self.add_task()
         row.expand.emit("clicked")
         self.window.add_button.popup()
         pump()
         for enabled in (False, True, False):
-            self.window.format_mode_check.set_active(enabled)
+            self.window.format_bar_check.set_active(enabled)
             pump()
             for frame, toolbar, view in (
                 (row.notes_editor, row.notes_toolbar, row.notes_view),
@@ -360,6 +360,62 @@ class UiTests(unittest.TestCase):
                     else:
                         # Only the native outer frame's border remains above the text.
                         self.assertLessEqual(text_bounds.get_y(), 2)
+
+    def test_format_bar_and_paragraph_alignment_are_independent_and_persist(self):
+        task, row = self.add_task()
+        row.expand.emit("clicked")
+        row.body_buffer.set_text("\tIndented notes")
+        self.window.create_description.get_buffer().set_text("\tNew notes")
+        self.assertEqual(self.window.format_bar_check.get_label(), "Show format bar")
+        self.assertTrue(self.window.format_bar_check.get_active())
+        for mode, bar in ((False, True), (True, False), (False, False), (True, True)):
+            with self.subTest(mode=mode, bar=bar):
+                self.window.format_mode_check.set_active(mode)
+                self.window.format_bar_check.set_active(bar)
+                for formatter, toolbar, frame in (
+                    (row.notes_formatter, row.notes_toolbar, row.notes_editor),
+                    (self.window.create_formatter, self.window.create_toolbar,
+                     self.window.create_editor),
+                ):
+                    self.assertEqual(bool(formatter.tags), mode)
+                    self.assertEqual(toolbar.get_visible(), bar)
+                    self.assertEqual(frame.separator.get_visible(), bar)
+                self.assertTrue(self.window.flush())
+                self.window.destroy()
+                pump()
+                self.window = TabellaWindow(self.application, self.store)
+                self.window.present()
+                pump()
+                self.assertEqual(self.window.format_mode_check.get_active(), mode)
+                self.assertEqual(self.window.format_bar_check.get_active(), bar)
+                self.assertEqual(self.window.create_toolbar.get_visible(), bar)
+                row = next(w for w in descendants(self.window.list)
+                           if isinstance(w, TaskRow) and w.task is not None and w.task.id == task.id)
+                row.expand.emit("clicked")
+                self.assertEqual(row.notes_toolbar.get_visible(), bar)
+                self.assertEqual(row.notes_editor.separator.get_visible(), bar)
+                self.assertEqual(bool(row.notes_formatter.tags), mode)
+                self.window.create_description.get_buffer().set_text("\tNew notes")
+                self.assertEqual(bool(self.window.create_formatter.tags), mode)
+
+    def test_format_bar_toggle_recovers_from_save_failure(self):
+        _, row = self.add_task()
+        row.expand.emit("clicked")
+        row.body_buffer.set_text("\tNotes")
+        with patch.object(self.store, "set_format_bar_enabled",
+                          side_effect=sqlite3.OperationalError("disk is full")):
+            self.window.format_bar_check.set_active(False)
+        self.assertTrue(self.window.format_bar_check.get_active())
+        self.assertTrue(self.window.format_bar_enabled)
+        self.assertTrue(self.store.format_bar_enabled())
+        self.assertTrue(row.notes_toolbar.get_visible())
+        self.assertTrue(self.window.create_toolbar.get_visible())
+        self.assertTrue(row.notes_formatter.tags)
+        self.assertTrue(row.notes_editor.separator.get_visible())
+        self.assertIn("disk is full", self.window.message.get_text())
+        self.window.format_bar_check.set_active(False)
+        self.assertFalse(row.notes_toolbar.get_visible())
+        self.assertTrue(row.notes_formatter.tags)
 
     def test_style_toolbar_toggles_combined_and_mixed_selections(self):
         _, row = self.add_task()
@@ -402,7 +458,7 @@ class UiTests(unittest.TestCase):
         buffer.delete(buffer.get_iter_at_offset(9), buffer.get_iter_at_offset(11))
         expected = [dict(style="bold", start=8, end=12)]
         self.assertEqual(row.notes_toolbar.ranges(), expected)
-        self.window.format_mode_check.set_active(False)
+        self.window.format_bar_check.set_active(False)
         self.assertFalse(row.notes_toolbar.get_visible())
         self.assertFalse(self.window.create_toolbar.get_visible())
         self.assertEqual(row.notes_toolbar.ranges(), expected)
@@ -423,7 +479,7 @@ class UiTests(unittest.TestCase):
         row.expand.emit("clicked")
         self.assertEqual(row.notes_toolbar.ranges(), expected)
         self.assertFalse(row.notes_toolbar.get_visible())
-        self.window.format_mode_check.set_active(True)
+        self.window.format_bar_check.set_active(True)
         self.assertTrue(row.notes_toolbar.get_visible())
         self.assertTrue(self.window.create_toolbar.get_visible())
         self.assertEqual(row.notes_toolbar.ranges(), expected)
